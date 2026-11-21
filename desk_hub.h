@@ -4,6 +4,11 @@
 #include <stdint.h>
 
 typedef enum {
+    POMO_MODE_50_10 = 0,
+    POMO_MODE_25_5 = 1
+} PomoMode;
+
+typedef enum {
     POMO_IDLE = 0,
     POMO_FOCUS = 1,
     POMO_BREAK = 2
@@ -16,13 +21,11 @@ typedef struct {
 } SensorSample;
 
 typedef struct {
-    /* Sensores e historial dinámico */
     SensorSample current;
     SensorSample *history;
     uint16_t history_count;
     uint16_t history_cap;
 
-    /* Temporizador hardware (sin variables globales) */
     uint16_t last_tcnt;
     uint16_t tick_accum;
     uint32_t uptime_ms;
@@ -30,16 +33,17 @@ typedef struct {
     uint32_t last_lcd_ms;
     uint32_t last_pomo_tick_ms;
 
-    /* Estado Pomodoro */
+    PomoMode pomo_mode;
     PomoState pomo_state;
     uint8_t pomo_running;
     uint16_t pomo_seconds_left;
 
-    /* Pantalla y pulsador D3 */
     uint8_t backlight_on;
     uint8_t btn_was_pressed;
     uint8_t btn_long_handled;
+    uint8_t btn_click_count;
     uint32_t btn_press_start_ms;
+    uint32_t btn_last_release_ms;
 } DeskHubSystem;
 
 DeskHubSystem *desk_hub_create(void);
