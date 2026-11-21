@@ -385,6 +385,3 @@ void desk_hub_step(DeskHubSystem *sys) {
     }
     return;
 }
-    }
-    return;
-}
