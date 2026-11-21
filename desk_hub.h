@@ -14,6 +14,21 @@ typedef enum {
     POMO_BREAK = 2
 } PomoState;
 
+typedef enum {
+    MELODY_BOOT = 0,
+    MELODY_START = 1,
+    MELODY_PAUSE = 2,
+    MELODY_MODE = 3,
+    MELODY_RESET = 4,
+    MELODY_FOCUS_END = 5,
+    MELODY_BREAK_END = 6
+} MelodyId;
+
+typedef struct {
+    uint16_t freq_hz;
+    uint16_t duration_ms;
+} Note;
+
 typedef struct {
     uint8_t temp_c;
     uint8_t hum_pct;
