@@ -1,148 +1,110 @@
-#ifndef F_CPU
-#define F_CPU 16000000UL
-#endif
-
 #include "desk_hub.h"
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-/* --- Driver LCD1602 en modo 4 bits (PORTA: PA0=RS, PA1=E, PA2..PA5=D4..D7) --- */
+#define FOCUS_DURATION_SEC 1500U /* 25:00 */
+#define BREAK_DURATION_SEC 300U  /* 05:00 */
+
 static void lcd_pulse_enable(void) {
     PORTA |= (1 << PA1);
     _delay_us(2);
     PORTA &= ~(1 << PA1);
     _delay_us(50);
+    return;
 }
 
 static void lcd_write_nibble(uint8_t nibble) {
-    PORTA = (uint8_t)((PORTA & 0xC3U) | ((nibble & 0x0FU) << 2));
+    PORTA &= ~((1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5));
+    if ((nibble & 0x01U) != 0U) { PORTA |= (1 << PA2); }
+    if ((nibble & 0x02U) != 0U) { PORTA |= (1 << PA3); }
+    if ((nibble & 0x04U) != 0U) { PORTA |= (1 << PA4); }
+    if ((nibble & 0x08U) != 0U) { PORTA |= (1 << PA5); }
     lcd_pulse_enable();
+    return;
 }
 
-static void lcd_send_byte(uint8_t val, uint8_t is_data) {
+static void lcd_send_byte(uint8_t value, uint8_t is_data) {
     if (is_data != 0U) {
         PORTA |= (1 << PA0);
     } else {
         PORTA &= ~(1 << PA0);
     }
-    lcd_write_nibble((uint8_t)(val >> 4));
-    lcd_write_nibble((uint8_t)(val & 0x0FU));
+    lcd_write_nibble((uint8_t)(value >> 4));
+    lcd_write_nibble((uint8_t)(value & 0x0FU));
+    if (is_data == 0U && value <= 0x03U) {
+        _delay_ms(2);
+    }
+    return;
 }
 
 static void lcd_init_hw(void) {
-    DDRA |= 0x3FU;
-    PORTA &= (uint8_t)(~0x3FU);
+    DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5);
+    DDRE |= (1 << PE3);  /* D5: luz de fondo LCD */
+    PORTE |= (1 << PE3); /* Encendida al arrancar */
     _delay_ms(40);
+
+    PORTA &= ~(1 << PA0);
     lcd_write_nibble(0x03U);
     _delay_ms(5);
     lcd_write_nibble(0x03U);
     _delay_us(150);
     lcd_write_nibble(0x03U);
     lcd_write_nibble(0x02U);
-    lcd_send_byte(0x28U, 0U); /* 4 bits, 2 lineas */
+
+    lcd_send_byte(0x28U, 0U); /* 4 bits, 2 líneas */
     lcd_send_byte(0x0CU, 0U); /* Display ON, cursor OFF */
     lcd_send_byte(0x06U, 0U); /* Auto-incremento */
     lcd_send_byte(0x01U, 0U); /* Limpiar pantalla */
-    _delay_ms(2);
+    return;
 }
 
-static void lcd_set_cursor(uint8_t col, uint8_t row) {
-    uint8_t addr = (uint8_t)(col + ((row == 0U) ? 0x00U : 0x40U));
-    lcd_send_byte((uint8_t)(0x80U | addr), 0U);
-}
-
-static void lcd_print_str(const char *s) {
-    size_t i = 0U;
-    while (s[i] != '\0') {
-        lcd_send_byte((uint8_t)s[i], 1U);
-        i++;
-    }
-}
-
-static void lcd_print_u16(uint16_t val, uint8_t pad2) {
-    char buf[6];
-    uint8_t idx = 0U;
-    if ((pad2 != 0U) && (val < 10U)) {
-        lcd_send_byte((uint8_t)'0', 1U);
-    }
-    if (val == 0U) {
-        lcd_send_byte((uint8_t)'0', 1U);
-    } else {
-        while (val > 0U) {
-            buf[idx] = (char)('0' + (val % 10U));
-            val /= 10U;
-            idx++;
+static void lcd_print_line(uint8_t row, const char *text) {
+    uint8_t i = 0U;
+    uint8_t ended = 0U;
+    lcd_send_byte((row == 0U) ? 0x80U : 0xC0U, 0U);
+    for (i = 0U; i < 16U; i++) {
+        if (ended == 0U && text[i] == '\0') {
+            ended = 1U;
         }
-        while (idx > 0U) {
-            idx--;
-            lcd_send_byte((uint8_t)buf[idx], 1U);
+        lcd_send_byte((ended == 0U) ? (uint8_t)text[i] : (uint8_t)' ', 1U);
+    }
+    return;
+}
+
+static void buzzer_beep(uint8_t count, uint16_t duration_ms) {
+    uint8_t i = 0U;
+    uint16_t t = 0U;
+    for (i = 0U; i < count; i++) {
+        PORTG |= (1 << PG5); /* D4 HIGH */
+        for (t = 0U; t < duration_ms; t++) { _delay_ms(1); }
+        PORTG &= ~(1 << PG5); /* D4 LOW */
+        if ((i + 1U) < count) {
+            for (t = 0U; t < 80U; t++) { _delay_ms(1); }
         }
     }
+    return;
 }
 
-/* --- Driver UART0 (9600 baudios hacia Tablet / PC) --- */
-static void uart_init_hw(void) {
-    UBRR0H = 0U;
-    UBRR0L = 103U;
-    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
-    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-}
-
-static void uart_tx_byte(uint8_t b) {
-    while ((UCSR0A & (1 << UDRE0)) == 0U) {
-    }
-    UDR0 = b;
-}
-
-static void uart_tx_str(const char *s) {
-    size_t i = 0U;
-    while (s[i] != '\0') {
-        uart_tx_byte((uint8_t)s[i]);
-        i++;
-    }
-}
-
-static void uart_tx_u8(uint8_t val) {
-    char buf[4];
-    uint8_t idx = 0U;
-    if (val == 0U) {
-        uart_tx_byte((uint8_t)'0');
-    } else {
-        while (val > 0U) {
-            buf[idx] = (char)('0' + (val % 10U));
-            val /= 10U;
-            idx++;
-        }
-        while (idx > 0U) {
-            idx--;
-            uart_tx_byte((uint8_t)buf[idx]);
-        }
-    }
-}
-
-/* --- Sensores: ADC0 (LDR en A0) y DHT11 (en D2 / PE4) --- */
-static uint8_t read_light_pct(void) {
+static uint8_t read_ldr_percent(void) {
     uint16_t raw = 0U;
-    ADMUX = (1 << REFS0);
-    ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+    uint8_t pct = 0U;
+    ADMUX = (1 << REFS0); /* Referencia AVCC 5V, canal ADC0 (A0) */
     ADCSRA |= (1 << ADSC);
-    while ((ADCSRA & (1 << ADSC)) != 0U) {
-    }
+    while ((ADCSRA & (1 << ADSC)) != 0U) { }
     raw = ADC;
-    return (uint8_t)((raw * 100UL) / 1023UL);
+    pct = (uint8_t)((raw * 100UL) / 1023UL);
+    return pct;
 }
 
-static int read_dht11(EnvReading *out) {
-    uint8_t data[5];
+static uint8_t read_dht11(uint8_t *temp_out, uint8_t *hum_out) {
+    uint8_t data[5] = {0U, 0U, 0U, 0U, 0U};
+    uint8_t ok = 0U;
     uint8_t i = 0U;
     uint16_t guard = 0U;
-    int ok = 0;
 
-    for (i = 0U; i < 5U; i++) {
-        data[i] = 0U;
-    }
-
+    /* Señal de inicio en D2 (PE4) */
     DDRE |= (1 << PE4);
     PORTE &= ~(1 << PE4);
     _delay_ms(18);
@@ -150,296 +112,220 @@ static int read_dht11(EnvReading *out) {
     _delay_us(30);
     DDRE &= ~(1 << PE4);
 
+    /* Respuesta del DHT11 */
     guard = 0U;
-    while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) {
-        _delay_us(1);
-        guard++;
-    }
+    while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) { _delay_us(1); guard++; }
     if (guard < 200U) {
         guard = 0U;
-        while (((PINE & (1 << PE4)) == 0U) && (guard < 200U)) {
-            _delay_us(1);
-            guard++;
-        }
+        while (((PINE & (1 << PE4)) == 0U) && (guard < 200U)) { _delay_us(1); guard++; }
         guard = 0U;
-        while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) {
-            _delay_us(1);
-            guard++;
-        }
+        while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) { _delay_us(1); guard++; }
+
         for (i = 0U; i < 40U; i++) {
             guard = 0U;
-            while (((PINE & (1 << PE4)) == 0U) && (guard < 200U)) {
-                _delay_us(1);
-                guard++;
-            }
+            while (((PINE & (1 << PE4)) == 0U) && (guard < 150U)) { _delay_us(1); guard++; }
             _delay_us(35);
-            data[i / 8U] <<= 1;
             if ((PINE & (1 << PE4)) != 0U) {
-                data[i / 8U] |= 1U;
+                data[i / 8U] |= (uint8_t)(1U << (7U - (i % 8U)));
             }
             guard = 0U;
-            while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) {
-                _delay_us(1);
-                guard++;
-            }
+            while (((PINE & (1 << PE4)) != 0U) && (guard < 150U)) { _delay_us(1); guard++; }
         }
-        if (((uint8_t)(data[0] + data[1] + data[2] + data[3])) == data[4]) {
-            out->hum_pct = data[0];
-            out->temp_c = data[2];
-            ok = 1;
+
+        if ((uint8_t)(data[0] + data[1] + data[2] + data[3]) == data[4]) {
+            *hum_out = data[0];
+            *temp_out = data[2];
+            ok = 1U;
         }
     }
     return ok;
 }
 
-/* --- Memoria dinamica con realloc para historial de lecturas --- */
-static int push_history(DeskHubSystem *sys, const EnvReading *sample) {
-    int ok = 1;
-    size_t i = 0U;
-
-    if (sys->history_count == sys->history_cap) {
-        if (sys->history_cap < HUB_MAX_HISTORY) {
-            size_t next_cap = sys->history_cap * 2U;
-            EnvReading *resized = (EnvReading *)realloc(sys->history, next_cap * sizeof(EnvReading));
+static void record_sample(DeskHubSystem *sys) {
+    SensorSample *resized = NULL;
+    uint16_t new_cap = 0U;
+    if (sys->history_count >= sys->history_cap) {
+        new_cap = (sys->history_cap == 0U) ? 8U : (uint16_t)(sys->history_cap * 2U);
+        if (new_cap > 64U) {
+            sys->history_count = 0U; /* Buffer circular al llenar 64 muestras */
+        } else {
+            resized = (SensorSample *)realloc(sys->history, sizeof(SensorSample) * new_cap);
             if (resized != NULL) {
                 sys->history = resized;
-                sys->history_cap = next_cap;
-            } else {
-                ok = 0;
+                sys->history_cap = new_cap;
             }
-        } else {
-            for (i = 1U; i < sys->history_count; i++) {
-                sys->history[i - 1U] = sys->history[i];
-            }
-            sys->history_count--;
         }
     }
-
-    if (ok != 0) {
-        sys->history[sys->history_count] = *sample;
+    if (sys->history != NULL && sys->history_count < sys->history_cap) {
+        sys->history[sys->history_count] = sys->current;
         sys->history_count++;
     }
-    return ok;
+    return;
 }
 
-static EnvReading compute_average(const DeskHubSystem *sys) {
-    EnvReading avg;
-    uint16_t sum_t = 0U;
-    uint16_t sum_h = 0U;
-    uint16_t sum_l = 0U;
-    size_t i = 0U;
+DeskHubSystem *desk_hub_create(void) {
+    DeskHubSystem *sys = (DeskHubSystem *)malloc(sizeof(DeskHubSystem));
+    if (sys != NULL) {
+        sys->current.temp_c = 0U;
+        sys->current.hum_pct = 0U;
+        sys->current.lux_pct = 0U;
+        sys->history = (SensorSample *)malloc(sizeof(SensorSample) * 8U);
+        sys->history_count = 0U;
+        sys->history_cap = (sys->history != NULL) ? 8U : 0U;
 
-    avg.temp_c = 22U;
-    avg.hum_pct = 45U;
-    avg.light_pct = 50U;
+        /* Timer1 prescaler 64 -> 250 ticks = 1 ms exacto a 16 MHz */
+        TCCR1A = 0x00U;
+        TCCR1B = (1 << CS11) | (1 << CS10);
+        TCNT1 = 0U;
 
-    if (sys->history_count > 0U) {
-        for (i = 0U; i < sys->history_count; i++) {
-            sum_t = (uint16_t)(sum_t + sys->history[i].temp_c);
-            sum_h = (uint16_t)(sum_h + sys->history[i].hum_pct);
-            sum_l = (uint16_t)(sum_l + sys->history[i].light_pct);
-        }
-        avg.temp_c = (uint8_t)(sum_t / sys->history_count);
-        avg.hum_pct = (uint8_t)(sum_h / sys->history_count);
-        avg.light_pct = (uint8_t)(sum_l / sys->history_count);
-    }
-    return avg;
-}
+        sys->last_tcnt = 0U;
+        sys->tick_accum = 0U;
+        sys->uptime_ms = 0UL;
+        sys->last_sensor_ms = 0UL;
+        sys->last_lcd_ms = 0UL;
+        sys->last_pomo_tick_ms = 0UL;
 
-/* --- Recepcion desde Tablet (ej. POMO:FOCUS,1,1500) con realloc --- */
-static void parse_tablet_line(DeskHubSystem *sys) {
-    if ((sys->rx_len >= 10U) &&
-        (sys->rx_buf[0] == 'P') && (sys->rx_buf[1] == 'O') &&
-        (sys->rx_buf[2] == 'M') && (sys->rx_buf[3] == 'O') &&
-        (sys->rx_buf[4] == ':')) {
-        size_t i = 5U;
-        uint8_t commas = 0U;
-        uint16_t secs = 0U;
+        sys->pomo_state = POMO_IDLE;
+        sys->pomo_running = 0U;
+        sys->pomo_seconds_left = FOCUS_DURATION_SEC;
 
-        if (sys->rx_buf[5] == 'F') {
-            sys->pomo.mode = POMO_FOCUS;
-        } else if (sys->rx_buf[5] == 'B') {
-            sys->pomo.mode = POMO_BREAK;
-        }
+        sys->backlight_on = 1U;
+        sys->btn_was_pressed = 0U;
+        sys->btn_long_handled = 0U;
+        sys->btn_press_start_ms = 0UL;
 
-        while (i < sys->rx_len) {
-            if (sys->rx_buf[i] == ',') {
-                commas++;
-            } else if (commas == 1U) {
-                sys->pomo.running = (uint8_t)((sys->rx_buf[i] == '1') ? 1U : 0U);
-            } else if ((commas == 2U) && (sys->rx_buf[i] >= '0') && (sys->rx_buf[i] <= '9')) {
-                secs = (uint16_t)((secs * 10U) + (uint16_t)(sys->rx_buf[i] - '0'));
-            }
-            i++;
-        }
-        if (commas >= 2U) {
-            sys->pomo.remaining_sec = secs;
-        }
-    }
-}
-
-static void poll_uart_rx(DeskHubSystem *sys) {
-    while ((UCSR0A & (1 << RXC0)) != 0U) {
-        char c = (char)UDR0;
-        if (c == '\n') {
-            sys->rx_buf[sys->rx_len] = '\0';
-            parse_tablet_line(sys);
-            sys->rx_len = 0U;
-        } else if (c != '\r') {
-            if ((sys->rx_len + 1U) >= sys->rx_cap) {
-                if (sys->rx_cap < HUB_RX_MAX_CAP) {
-                    size_t next_cap = sys->rx_cap * 2U;
-                    char *bigger = (char *)realloc(sys->rx_buf, next_cap);
-                    if (bigger != NULL) {
-                        sys->rx_buf = bigger;
-                        sys->rx_cap = next_cap;
-                    }
-                } else {
-                    sys->rx_len = 0U;
-                }
-            }
-            if ((sys->rx_len + 1U) < sys->rx_cap) {
-                sys->rx_buf[sys->rx_len] = c;
-                sys->rx_len++;
-            }
-        }
-    }
-}
-
-static void refresh_lcd(const DeskHubSystem *sys, const EnvReading *avg) {
-    uint16_t mins = (uint16_t)(sys->pomo.remaining_sec / 60U);
-    uint16_t secs = (uint16_t)(sys->pomo.remaining_sec % 60U);
-
-    lcd_set_cursor(0U, 0U);
-    lcd_print_str("T:");
-    lcd_print_u16(avg->temp_c, 0U);
-    lcd_print_str("C H:");
-    lcd_print_u16(avg->hum_pct, 0U);
-    lcd_print_str("% L:");
-    lcd_print_u16(avg->light_pct, 0U);
-    lcd_print_str("%  ");
-
-    lcd_set_cursor(0U, 1U);
-    if (sys->pomo.mode == POMO_BREAK) {
-        lcd_print_str("DESC  ");
-    } else {
-        lcd_print_str("FOCUS ");
-    }
-    lcd_print_u16(mins, 1U);
-    lcd_print_str(":");
-    lcd_print_u16(secs, 1U);
-    if (sys->pomo.running != 0U) {
-        lcd_print_str(" RUN ");
-    } else {
-        lcd_print_str(" PAUS");
-    }
-}
-
-int desk_hub_init(DeskHubSystem **out_sys) {
-    int status = 0;
-    DeskHubSystem *sys = NULL;
-
-    if (out_sys != NULL) {
-        sys = (DeskHubSystem *)malloc(sizeof(DeskHubSystem));
-        if (sys != NULL) {
-            sys->history_cap = 4U;
-            sys->history_count = 0U;
-            sys->history = (EnvReading *)malloc(sys->history_cap * sizeof(EnvReading));
-            sys->rx_cap = HUB_RX_INIT_CAP;
-            sys->rx_len = 0U;
-            sys->rx_buf = (char *)malloc(sys->rx_cap);
-
-            if ((sys->history != NULL) && (sys->rx_buf != NULL)) {
-                sys->rx_buf[0] = '\0';
-                sys->pomo.mode = POMO_FOCUS;
-                sys->pomo.running = 0U;
-                sys->pomo.remaining_sec = 1500U;
-                sys->pomo.last_btn_state = 1U;
-                sys->pomo.beep_ticks = 0U;
-                sys->tick_ms = 0U;
-
-                /* Boton D3 (PE5) pull-up y Buzzer D4 (PG5) salida */
-                DDRE &= ~(1 << PE5);
-                PORTE |= (1 << PE5);
-                DDRG |= (1 << PG5);
-                PORTG &= ~(1 << PG5);
-
-                uart_init_hw();
-                lcd_init_hw();
-                *out_sys = sys;
-                status = 1;
-            } else {
-                free(sys->history);
-                free(sys->rx_buf);
-                free(sys);
-            }
-        }
-    }
-    return status;
-}
-
-void desk_hub_step(DeskHubSystem *sys) {
-    uint8_t btn_now = (uint8_t)((PINE & (1 << PE5)) != 0U ? 1U : 0U);
-
-    poll_uart_rx(sys);
-
-    /* Flanco de bajada en boton fisico D3: Start / Pause */
-    if ((sys->pomo.last_btn_state == 1U) && (btn_now == 0U)) {
-        sys->pomo.running = (uint8_t)((sys->pomo.running == 0U) ? 1U : 0U);
-        sys->pomo.beep_ticks = 1U;
-    }
-    sys->pomo.last_btn_state = btn_now;
-
-    if (sys->pomo.beep_ticks > 0U) {
-        PORTG |= (1 << PG5);
-        sys->pomo.beep_ticks--;
-    } else {
+        /* Pines: D3 (PE5) botón pull-up, D4 (PG5) buzzer, ADC0 habilitado */
+        DDRE &= ~(1 << PE5);
+        PORTE |= (1 << PE5);
+        DDRG |= (1 << PG5);
         PORTG &= ~(1 << PG5);
+        ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+
+        lcd_init_hw();
+        sys->current.lux_pct = read_ldr_percent();
+        (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
+        buzzer_beep(1U, 60U);
     }
-
-    _delay_ms(50);
-    sys->tick_ms = (uint16_t)(sys->tick_ms + 50U);
-
-    if (sys->tick_ms >= 1000U) {
-        EnvReading sample;
-        EnvReading avg;
-
-        sys->tick_ms = 0U;
-        if ((sys->pomo.running != 0U) && (sys->pomo.remaining_sec > 0U)) {
-            sys->pomo.remaining_sec--;
-            if (sys->pomo.remaining_sec == 0U) {
-                sys->pomo.running = 0U;
-                sys->pomo.beep_ticks = 6U;
-            }
-        }
-
-        sample.temp_c = 22U;
-        sample.hum_pct = 45U;
-        if (sys->history_count > 0U) {
-            sample = sys->history[sys->history_count - 1U];
-        }
-        (void)read_dht11(&sample);
-        sample.light_pct = read_light_pct();
-        (void)push_history(sys, &sample);
-
-        avg = compute_average(sys);
-        refresh_lcd(sys, &avg);
-
-        /* Envio de telemetria exacto para desk_hub.html */
-        uart_tx_str("TEMP:");
-        uart_tx_u8(avg.temp_c);
-        uart_tx_str(",HUM:");
-        uart_tx_u8(avg.hum_pct);
-        uart_tx_str(",LUX:");
-        uart_tx_u8(avg.light_pct);
-        uart_tx_str("\n");
-    }
+    return sys;
 }
 
 void desk_hub_destroy(DeskHubSystem *sys) {
     if (sys != NULL) {
-        free(sys->history);
-        free(sys->rx_buf);
+        if (sys->history != NULL) {
+            free(sys->history);
+            sys->history = NULL;
+        }
         free(sys);
     }
+    return;
+}
+
+void desk_hub_step(DeskHubSystem *sys) {
+    uint16_t now_tcnt = 0U;
+    uint16_t delta = 0U;
+    uint8_t is_pressed = 0U;
+    uint32_t held_ms = 0UL;
+    char line0[17];
+    char line1[17];
+    uint16_t mins = 0U;
+    uint16_t secs = 0U;
+    const char *label = "LISTO";
+
+    if (sys != NULL) {
+        /* 1. Actualizar reloj interno en milisegundos */
+        now_tcnt = TCNT1;
+        delta = (uint16_t)(now_tcnt - sys->last_tcnt);
+        sys->last_tcnt = now_tcnt;
+        sys->tick_accum = (uint16_t)(sys->tick_accum + delta);
+        while (sys->tick_accum >= 250U) {
+            sys->tick_accum = (uint16_t)(sys->tick_accum - 250U);
+            sys->uptime_ms++;
+        }
+
+        /* 2. Pulsador D3: toque corto = Pomodoro | 2 s = Apagar/Encender LCD */
+        is_pressed = ((PINE & (1 << PE5)) == 0U) ? 1U : 0U;
+        if ((is_pressed != 0U) && (sys->btn_was_pressed == 0U)) {
+            sys->btn_was_pressed = 1U;
+            sys->btn_long_handled = 0U;
+            sys->btn_press_start_ms = sys->uptime_ms;
+        } else if ((is_pressed != 0U) && (sys->btn_was_pressed != 0U)) {
+            held_ms = sys->uptime_ms - sys->btn_press_start_ms;
+            if ((held_ms >= 2000UL) && (sys->btn_long_handled == 0U)) {
+                sys->btn_long_handled = 1U;
+                sys->backlight_on = (sys->backlight_on != 0U) ? 0U : 1U;
+                if (sys->backlight_on != 0U) {
+                    PORTE |= (1 << PE3);
+                    lcd_send_byte(0x0CU, 0U);
+                    buzzer_beep(1U, 40U);
+                } else {
+                    PORTE &= ~(1 << PE3);
+                    lcd_send_byte(0x08U, 0U);
+                }
+            }
+        } else if ((is_pressed == 0U) && (sys->btn_was_pressed != 0U)) {
+            held_ms = sys->uptime_ms - sys->btn_press_start_ms;
+            if ((sys->btn_long_handled == 0U) && (held_ms >= 50UL) && (sys->backlight_on != 0U)) {
+                if (sys->pomo_state == POMO_IDLE) {
+                    sys->pomo_state = POMO_FOCUS;
+                    sys->pomo_running = 1U;
+                } else {
+                    sys->pomo_running = (sys->pomo_running != 0U) ? 0U : 1U;
+                }
+                sys->last_pomo_tick_ms = sys->uptime_ms;
+                buzzer_beep(1U, 40U);
+            }
+            sys->btn_was_pressed = 0U;
+            sys->btn_long_handled = 0U;
+        }
+
+        /* 3. Cuenta atrás del Pomodoro cada 1000 ms */
+        if ((sys->pomo_running != 0U) && ((sys->uptime_ms - sys->last_pomo_tick_ms) >= 1000UL)) {
+            sys->last_pomo_tick_ms += 1000UL;
+            if (sys->pomo_seconds_left > 0U) {
+                sys->pomo_seconds_left--;
+            } else {
+                buzzer_beep(3U, 120U);
+                if (sys->pomo_state == POMO_FOCUS) {
+                    sys->pomo_state = POMO_BREAK;
+                    sys->pomo_seconds_left = BREAK_DURATION_SEC;
+                } else {
+                    sys->pomo_state = POMO_FOCUS;
+                    sys->pomo_seconds_left = FOCUS_DURATION_SEC;
+                }
+            }
+        }
+
+        /* 4. Lectura de sensores cada 2000 ms */
+        if ((sys->uptime_ms - sys->last_sensor_ms) >= 2000UL) {
+            sys->last_sensor_ms = sys->uptime_ms;
+            sys->current.lux_pct = read_ldr_percent();
+            (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
+            record_sample(sys);
+        }
+
+        /* 5. Refresco de pantalla LCD cada 250 ms si está encendida */
+        if ((sys->backlight_on != 0U) && ((sys->uptime_ms - sys->last_lcd_ms) >= 250UL)) {
+            sys->last_lcd_ms = sys->uptime_ms;
+            if (sys->pomo_state == POMO_FOCUS) {
+                label = (sys->pomo_running != 0U) ? "FOCUS" : "PAUSA";
+            } else if (sys->pomo_state == POMO_BREAK) {
+                label = (sys->pomo_running != 0U) ? "DESC " : "PAUSA";
+            }
+            mins = (uint16_t)(sys->pomo_seconds_left / 60U);
+            secs = (uint16_t)(sys->pomo_seconds_left % 60U);
+
+            (void)snprintf(line0, sizeof(line0), "%2uC %2u%% L:%3u%%",
+                           (unsigned int)sys->current.temp_c,
+                           (unsigned int)sys->current.hum_pct,
+                           (unsigned int)sys->current.lux_pct);
+            (void)snprintf(line1, sizeof(line1), "%-6s %02u:%02u",
+                           label,
+                           (unsigned int)mins,
+                           (unsigned int)secs);
+
+            lcd_print_line(0U, line0);
+            lcd_print_line(1U, line1);
+        }
+    }
+    return;
 }
