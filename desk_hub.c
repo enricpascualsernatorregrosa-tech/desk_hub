@@ -11,7 +11,33 @@
 #define BREAK_5_SEC         300U  /* 05:00 */
 #define LCD_BRIGHTNESS      55U
 #define SENSOR_INVALID      255U
-#define DOUBLE_CLICK_MS     350UL
+#define MULTI_CLICK_MS      380UL
+
+/* Notas musicales en Hz */
+#define NOTE_A4  440U
+#define NOTE_C5  523U
+#define NOTE_CS5 554U
+#define NOTE_E5  659U
+#define NOTE_G5  784U
+#define NOTE_A5  880U
+#define NOTE_C6  1047U
+#define NOTE_REST 0U
+
+static void sys_sync_clock(DeskHubSystem *sys) {
+    uint16_t now_tcnt = 0U;
+    uint16_t delta = 0U;
+    if (sys != NULL) {
+        now_tcnt = TCNT1;
+        delta = (uint16_t)(now_tcnt - sys->last_tcnt);
+        sys->last_tcnt = now_tcnt;
+        sys->tick_accum = (uint16_t)(sys->tick_accum + delta);
+        while (sys->tick_accum >= 250U) {
+            sys->tick_accum = (uint16_t)(sys->tick_accum - 250U);
+            sys->uptime_ms++;
+        }
+    }
+    return;
+}
 
 static void lcd_pulse_enable(void) {
     PORTA |= (1 << PA1);
@@ -107,18 +133,86 @@ static void lcd_print_line(uint8_t row, const char *text) {
     return;
 }
 
-static void buzzer_beep(uint8_t count, uint16_t duration_ms) {
-    uint8_t i = 0U;
-    uint16_t t = 0U;
-    for (i = 0U; i < count; i++) {
-        PORTG |= (1 << PG5);
-        for (t = 0U; t < duration_ms; t++) {
-            _delay_ms(1);
+static void buzzer_play_tone(DeskHubSystem *sys, uint16_t freq_hz, uint16_t duration_ms) {
+    uint32_t end_ms = 0UL;
+    uint16_t half_ticks = 0U;
+    uint16_t last_toggle = 0U;
+
+    if (sys != NULL) {
+        sys_sync_clock(sys);
+        end_ms = sys->uptime_ms + (uint32_t)duration_ms;
+
+        if (freq_hz > 0U) {
+            half_ticks = (uint16_t)(125000UL / (uint32_t)freq_hz);
+            last_toggle = TCNT1;
+            while (sys->uptime_ms < end_ms) {
+                sys_sync_clock(sys);
+                if ((uint16_t)(TCNT1 - last_toggle) >= half_ticks) {
+                    PORTG ^= (1 << PG5);
+                    last_toggle = TCNT1;
+                }
+            }
+            PORTG &= ~(1 << PG5);
+        } else {
+            PORTG &= ~(1 << PG5);
+            while (sys->uptime_ms < end_ms) {
+                sys_sync_clock(sys);
+            }
         }
-        PORTG &= ~(1 << PG5);
-        if ((i + 1U) < count) {
-            for (t = 0U; t < 80U; t++) {
-                _delay_ms(1);
+    }
+    return;
+}
+
+static void buzzer_play_melody(DeskHubSystem *sys, MelodyId id) {
+    Note seq[6];
+    uint8_t count = 0U;
+    uint8_t i = 0U;
+
+    if (sys != NULL) {
+        if (id == MELODY_BOOT) {
+            seq[0] = (Note){NOTE_C5, 70U};
+            seq[1] = (Note){NOTE_E5, 70U};
+            seq[2] = (Note){NOTE_G5, 110U};
+            count = 3U;
+        } else if (id == MELODY_START) {
+            seq[0] = (Note){NOTE_E5, 65U};
+            seq[1] = (Note){NOTE_G5, 95U};
+            count = 2U;
+        } else if (id == MELODY_PAUSE) {
+            seq[0] = (Note){NOTE_G5, 65U};
+            seq[1] = (Note){NOTE_E5, 95U};
+            count = 2U;
+        } else if (id == MELODY_MODE) {
+            seq[0] = (Note){NOTE_A4, 60U};
+            seq[1] = (Note){NOTE_CS5, 60U};
+            seq[2] = (Note){NOTE_E5, 90U};
+            count = 3U;
+        } else if (id == MELODY_RESET) {
+            seq[0] = (Note){NOTE_G5, 70U};
+            seq[1] = (Note){NOTE_E5, 70U};
+            seq[2] = (Note){NOTE_C5, 130U};
+            count = 3U;
+        } else if (id == MELODY_FOCUS_END) {
+            seq[0] = (Note){NOTE_C5, 110U};
+            seq[1] = (Note){NOTE_E5, 110U};
+            seq[2] = (Note){NOTE_G5, 110U};
+            seq[3] = (Note){NOTE_C6, 220U};
+            seq[4] = (Note){NOTE_G5, 100U};
+            seq[5] = (Note){NOTE_C6, 280U};
+            count = 6U;
+        } else {
+            seq[0] = (Note){NOTE_E5, 110U};
+            seq[1] = (Note){NOTE_G5, 110U};
+            seq[2] = (Note){NOTE_E5, 110U};
+            seq[3] = (Note){NOTE_C5, 120U};
+            seq[4] = (Note){NOTE_G5, 240U};
+            count = 5U;
+        }
+
+        for (i = 0U; i < count; i++) {
+            buzzer_play_tone(sys, seq[i].freq_hz, seq[i].duration_ms);
+            if ((i + 1U) < count) {
+                buzzer_play_tone(sys, NOTE_REST, 25U);
             }
         }
     }
@@ -289,9 +383,10 @@ DeskHubSystem *desk_hub_create(void) {
 
         lcd_init_hw();
         _delay_ms(1000);
+        sys->last_tcnt = TCNT1;
         sys->current.lux_pct = read_ldr_percent();
         (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
-        buzzer_beep(1U, 60U);
+        buzzer_play_melody(sys, MELODY_BOOT);
     }
     return sys;
 }
@@ -308,8 +403,6 @@ void desk_hub_destroy(DeskHubSystem *sys) {
 }
 
 void desk_hub_step(DeskHubSystem *sys) {
-    uint16_t now_tcnt = 0U;
-    uint16_t delta = 0U;
     uint8_t is_pressed = 0U;
     uint32_t held_ms = 0UL;
     char line0[17];
@@ -319,16 +412,9 @@ void desk_hub_step(DeskHubSystem *sys) {
     const char *label = "50/10";
 
     if (sys != NULL) {
-        now_tcnt = TCNT1;
-        delta = (uint16_t)(now_tcnt - sys->last_tcnt);
-        sys->last_tcnt = now_tcnt;
-        sys->tick_accum = (uint16_t)(sys->tick_accum + delta);
-        while (sys->tick_accum >= 250U) {
-            sys->tick_accum = (uint16_t)(sys->tick_accum - 250U);
-            sys->uptime_ms++;
-        }
+        sys_sync_clock(sys);
 
-        /* 1. Pulsador D3: mantener 2 s = apagar/encender LCD | 1 toque = start/pausa | 2 toques = cambiar modo */
+        /* 1. Pulsador D3: mantener 2 s = apagar/encender | 1 toque = start/pausa | 2 = modo | 3 = reset */
         is_pressed = ((PINE & (1 << PE5)) == 0U) ? 1U : 0U;
         if ((is_pressed != 0U) && (sys->btn_was_pressed == 0U)) {
             sys->btn_was_pressed = 1U;
@@ -342,7 +428,7 @@ void desk_hub_step(DeskHubSystem *sys) {
                 lcd_set_power(sys, (sys->backlight_on != 0U) ? 0U : 1U);
                 if (sys->backlight_on != 0U) {
                     sys->last_lcd_ms = 0UL;
-                    buzzer_beep(1U, 40U);
+                    buzzer_play_melody(sys, MELODY_START);
                 }
             }
         } else if ((is_pressed == 0U) && (sys->btn_was_pressed != 0U)) {
@@ -356,39 +442,51 @@ void desk_hub_step(DeskHubSystem *sys) {
         }
 
         if ((is_pressed == 0U) && (sys->btn_click_count > 0U)) {
-            if (sys->btn_click_count >= 2U) {
+            if (sys->btn_click_count >= 3U) {
                 sys->btn_click_count = 0U;
                 if (sys->backlight_on == 0U) {
                     lcd_set_power(sys, 1U);
-                }
-                if (sys->pomo_mode == POMO_MODE_50_10) {
-                    sys->pomo_mode = POMO_MODE_25_5;
-                } else {
-                    sys->pomo_mode = POMO_MODE_50_10;
                 }
                 sys->pomo_state = POMO_IDLE;
                 sys->pomo_running = 0U;
                 sys->pomo_seconds_left = get_focus_seconds(sys->pomo_mode);
                 sys->last_lcd_ms = 0UL;
-                buzzer_beep(2U, 45U);
-            } else if ((sys->uptime_ms - sys->btn_last_release_ms) >= DOUBLE_CLICK_MS) {
-                sys->btn_click_count = 0U;
-                if (sys->backlight_on == 0U) {
-                    lcd_set_power(sys, 1U);
-                }
-                if (sys->pomo_state == POMO_IDLE) {
-                    sys->pomo_state = POMO_FOCUS;
-                    sys->pomo_running = 1U;
+                buzzer_play_melody(sys, MELODY_RESET);
+            } else if ((sys->uptime_ms - sys->btn_last_release_ms) >= MULTI_CLICK_MS) {
+                if (sys->btn_click_count == 2U) {
+                    sys->btn_click_count = 0U;
+                    if (sys->backlight_on == 0U) {
+                        lcd_set_power(sys, 1U);
+                    }
+                    if (sys->pomo_mode == POMO_MODE_50_10) {
+                        sys->pomo_mode = POMO_MODE_25_5;
+                    } else {
+                        sys->pomo_mode = POMO_MODE_50_10;
+                    }
+                    sys->pomo_state = POMO_IDLE;
+                    sys->pomo_running = 0U;
+                    sys->pomo_seconds_left = get_focus_seconds(sys->pomo_mode);
+                    sys->last_lcd_ms = 0UL;
+                    buzzer_play_melody(sys, MELODY_MODE);
                 } else {
-                    sys->pomo_running = (sys->pomo_running != 0U) ? 0U : 1U;
+                    sys->btn_click_count = 0U;
+                    if (sys->backlight_on == 0U) {
+                        lcd_set_power(sys, 1U);
+                    }
+                    if (sys->pomo_state == POMO_IDLE) {
+                        sys->pomo_state = POMO_FOCUS;
+                        sys->pomo_running = 1U;
+                    } else {
+                        sys->pomo_running = (sys->pomo_running != 0U) ? 0U : 1U;
+                    }
+                    sys->last_pomo_tick_ms = sys->uptime_ms;
+                    sys->last_lcd_ms = 0UL;
+                    buzzer_play_melody(sys, (sys->pomo_running != 0U) ? MELODY_START : MELODY_PAUSE);
                 }
-                sys->last_pomo_tick_ms = sys->uptime_ms;
-                sys->last_lcd_ms = 0UL;
-                buzzer_beep(1U, 40U);
             }
         }
 
-        /* 2. Cuenta atrás Pomodoro (50->10 o 25->5) con aviso sonoro y encendido de LCD */
+        /* 2. Cuenta atrás Pomodoro con melodía al finalizar cada fase */
         if ((sys->pomo_running != 0U) && ((sys->uptime_ms - sys->last_pomo_tick_ms) >= 1000UL)) {
             sys->last_pomo_tick_ms += 1000UL;
             if (sys->pomo_seconds_left > 0U) {
@@ -401,11 +499,13 @@ void desk_hub_step(DeskHubSystem *sys) {
                 if (sys->pomo_state == POMO_FOCUS) {
                     sys->pomo_state = POMO_BREAK;
                     sys->pomo_seconds_left = get_break_seconds(sys->pomo_mode);
+                    buzzer_play_melody(sys, MELODY_FOCUS_END);
                 } else {
                     sys->pomo_state = POMO_FOCUS;
                     sys->pomo_seconds_left = get_focus_seconds(sys->pomo_mode);
+                    buzzer_play_melody(sys, MELODY_BREAK_END);
                 }
-                buzzer_beep(3U, 140U);
+                sys->last_pomo_tick_ms = sys->uptime_ms;
             }
         }
 
