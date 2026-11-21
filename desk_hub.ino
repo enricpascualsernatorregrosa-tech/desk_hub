@@ -1,0 +1,1 @@
+/* Archivo vacio intencionadamente: la entrada real esta en main.c (C puro) */
