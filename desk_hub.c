@@ -1,5 +1,6 @@
 #include "desk_hub.h"
 #include <avr/io.h>
+#include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 #define FOCUS_DURATION_SEC 1500U /* 25:00 */
 #define BREAK_DURATION_SEC 300U  /* 05:00 */
 #define LCD_BRIGHTNESS     55U   /* Brillo PWM (1 = mínimo, 255 = máximo) */
+#define SENSOR_INVALID     255U  /* Marca de lectura pendiente o sin respuesta */
 
 static void lcd_pulse_enable(void) {
     PORTA |= (1 << PA1);
@@ -60,7 +62,7 @@ static void lcd_init_hw(void) {
     DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5);
     DDRE |= (1 << PE3); /* D5 (OC3A) como salida */
 
-    /* Timer3 en Fast PWM 8-bit (~976 Hz) para regular brillo sin parpadeo */
+    /* Timer3 en Fast PWM 8-bit (~976 Hz) */
     TCCR3A = (1 << COM3A1) | (1 << WGM30);
     TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
     OCR3A = LCD_BRIGHTNESS;
@@ -119,39 +121,64 @@ static uint8_t read_ldr_percent(void) {
     return pct;
 }
 
+/* Mide ticks de Timer1 (1 tick = 4 us a 16 MHz / 64) hasta que PE4 cambie de estado */
+static uint16_t dht_measure_pulse(uint8_t level_high, uint16_t timeout_ticks) {
+    uint16_t start = TCNT1;
+    uint16_t elapsed = 0U;
+    uint8_t done = 0U;
+    while (done == 0U) {
+        elapsed = (uint16_t)(TCNT1 - start);
+        if (level_high != 0U) {
+            if ((PINE & (1 << PE4)) == 0U) { done = 1U; }
+        } else {
+            if ((PINE & (1 << PE4)) != 0U) { done = 1U; }
+        }
+        if (elapsed >= timeout_ticks) {
+            done = 1U;
+        }
+    }
+    return elapsed;
+}
+
 static uint8_t read_dht11(uint8_t *temp_out, uint8_t *hum_out) {
     uint8_t data[5] = {0U, 0U, 0U, 0U, 0U};
     uint8_t ok = 0U;
     uint8_t i = 0U;
-    uint16_t guard = 0U;
+    uint16_t pulse_ticks = 0U;
+    uint8_t abort_read = 0U;
 
+    /* 1. Pulso de inicio: 18 ms en LOW en D2 (PE4) */
     DDRE |= (1 << PE4);
     PORTE &= ~(1 << PE4);
     _delay_ms(18);
-    PORTE |= (1 << PE4);
-    _delay_us(30);
+
+    /* 2. Soltar bus inmediatamente a entrada con pull-up y pausar interrupciones */
+    cli();
     DDRE &= ~(1 << PE4);
+    PORTE |= (1 << PE4);
 
-    guard = 0U;
-    while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) { _delay_us(1); guard++; }
-    if (guard < 200U) {
-        guard = 0U;
-        while (((PINE & (1 << PE4)) == 0U) && (guard < 200U)) { _delay_us(1); guard++; }
-        guard = 0U;
-        while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) { _delay_us(1); guard++; }
+    /* 3. Esperar respuesta del DHT11 (bajada 20-40us, bajo 80us, alto 80us) */
+    if (dht_measure_pulse(1U, 30U) >= 30U) { abort_read = 1U; }
+    if ((abort_read == 0U) && (dht_measure_pulse(0U, 35U) >= 35U)) { abort_read = 1U; }
+    if ((abort_read == 0U) && (dht_measure_pulse(1U, 35U) >= 35U)) { abort_read = 1U; }
 
-        for (i = 0U; i < 40U; i++) {
-            guard = 0U;
-            while (((PINE & (1 << PE4)) == 0U) && (guard < 150U)) { _delay_us(1); guard++; }
-            _delay_us(35);
-            if ((PINE & (1 << PE4)) != 0U) {
+    /* 4. Leer 40 bits midiendo anchura exacta: 0 = ~7 ticks (28us), 1 = ~17 ticks (70us) */
+    for (i = 0U; (i < 40U) && (abort_read == 0U); i++) {
+        if (dht_measure_pulse(0U, 25U) >= 25U) {
+            abort_read = 1U;
+        } else {
+            pulse_ticks = dht_measure_pulse(1U, 30U);
+            if (pulse_ticks >= 30U) {
+                abort_read = 1U;
+            } else if (pulse_ticks > 11U) {
                 data[i / 8U] |= (uint8_t)(1U << (7U - (i % 8U)));
             }
-            guard = 0U;
-            while (((PINE & (1 << PE4)) != 0U) && (guard < 150U)) { _delay_us(1); guard++; }
         }
+    }
+    sei();
 
-        if ((uint8_t)(data[0] + data[1] + data[2] + data[3]) == data[4]) {
+    if ((abort_read == 0U) && ((uint8_t)(data[0] + data[1] + data[2] + data[3]) == data[4])) {
+        if ((temp_out != NULL) && (hum_out != NULL)) {
             *hum_out = data[0];
             *temp_out = data[2];
             ok = 1U;
@@ -185,13 +212,14 @@ static void record_sample(DeskHubSystem *sys) {
 DeskHubSystem *desk_hub_create(void) {
     DeskHubSystem *sys = (DeskHubSystem *)malloc(sizeof(DeskHubSystem));
     if (sys != NULL) {
-        sys->current.temp_c = 0U;
-        sys->current.hum_pct = 0U;
+        sys->current.temp_c = SENSOR_INVALID;
+        sys->current.hum_pct = SENSOR_INVALID;
         sys->current.lux_pct = 0U;
         sys->history = (SensorSample *)malloc(sizeof(SensorSample) * 8U);
         sys->history_count = 0U;
         sys->history_cap = (sys->history != NULL) ? 8U : 0U;
 
+        /* Timer1 prescaler 64 -> 250 ticks = 1 ms (1 tick = 4 us) */
         TCCR1A = 0x00U;
         TCCR1B = (1 << CS11) | (1 << CS10);
         TCNT1 = 0U;
@@ -260,7 +288,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             sys->uptime_ms++;
         }
 
-        /* 2. Pulsador D3: mantener 2 s apaga/enciende | toque corto controla Pomodoro y enciende LCD */
+        /* 2. Pulsador D3: mantener 2 s apaga/enciende | toque corto controla Pomodoro */
         is_pressed = ((PINE & (1 << PE5)) == 0U) ? 1U : 0U;
         if ((is_pressed != 0U) && (sys->btn_was_pressed == 0U)) {
             sys->btn_was_pressed = 1U;
@@ -296,7 +324,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             sys->btn_long_handled = 0U;
         }
 
-        /* 3. Cuenta atrás Pomodoro: despierta la pantalla al llegar a 00:00 antes de pitar */
+        /* 3. Cuenta atrás Pomodoro */
         if ((sys->pomo_running != 0U) && ((sys->uptime_ms - sys->last_pomo_tick_ms) >= 1000UL)) {
             sys->last_pomo_tick_ms += 1000UL;
             if (sys->pomo_seconds_left > 0U) {
@@ -321,8 +349,9 @@ void desk_hub_step(DeskHubSystem *sys) {
         if ((sys->uptime_ms - sys->last_sensor_ms) >= 2000UL) {
             sys->last_sensor_ms = sys->uptime_ms;
             sys->current.lux_pct = read_ldr_percent();
-            (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
-            record_sample(sys);
+            if (read_dht11(&sys->current.temp_c, &sys->current.hum_pct) != 0U) {
+                record_sample(sys);
+            }
         }
 
         /* 5. Refresco de pantalla cada 250 ms solo si está encendida */
@@ -336,10 +365,15 @@ void desk_hub_step(DeskHubSystem *sys) {
             mins = (uint16_t)(sys->pomo_seconds_left / 60U);
             secs = (uint16_t)(sys->pomo_seconds_left % 60U);
 
-            (void)snprintf(line0, sizeof(line0), "%2uC %2u%% L:%3u%%",
-                           (unsigned int)sys->current.temp_c,
-                           (unsigned int)sys->current.hum_pct,
-                           (unsigned int)sys->current.lux_pct);
+            if (sys->current.temp_c == SENSOR_INVALID) {
+                (void)snprintf(line0, sizeof(line0), "--C --%% L:%3u%%",
+                               (unsigned int)sys->current.lux_pct);
+            } else {
+                (void)snprintf(line0, sizeof(line0), "%2uC %2u%% L:%3u%%",
+                               (unsigned int)sys->current.temp_c,
+                               (unsigned int)sys->current.hum_pct,
+                               (unsigned int)sys->current.lux_pct);
+            }
             (void)snprintf(line1, sizeof(line1), "%-6s %02u:%02u",
                            label,
                            (unsigned int)mins,
