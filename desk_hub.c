@@ -5,10 +5,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define FOCUS_DURATION_SEC 1500U
-#define BREAK_DURATION_SEC 300U
-#define LCD_BRIGHTNESS     55U
-#define SENSOR_INVALID     255U
+#define FOCUS_50_SEC        3000U /* 50:00 */
+#define BREAK_10_SEC        600U  /* 10:00 */
+#define FOCUS_25_SEC        1500U /* 25:00 */
+#define BREAK_5_SEC         300U  /* 05:00 */
+#define LCD_BRIGHTNESS      55U
+#define SENSOR_INVALID      255U
+#define DOUBLE_CLICK_MS     350UL
 
 static void lcd_pulse_enable(void) {
     PORTA |= (1 << PA1);
@@ -42,31 +45,8 @@ static void lcd_send_byte(uint8_t value, uint8_t is_data) {
     return;
 }
 
-static void lcd_set_power(DeskHubSystem *sys, uint8_t on) {
-    if (sys != NULL) {
-        sys->backlight_on = (on != 0U) ? 1U : 0U;
-        if (sys->backlight_on != 0U) {
-            OCR3A = LCD_BRIGHTNESS;
-            TCCR3A |= (1 << COM3A1);
-            lcd_send_byte(0x0CU, 0U);
-        } else {
-            TCCR3A &= ~((1 << COM3A1) | (1 << COM3A0));
-            PORTE &= ~(1 << PE3);
-            lcd_send_byte(0x08U, 0U);
-        }
-    }
-    return;
-}
-
-static void lcd_init_hw(void) {
-    DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5);
-    DDRE |= (1 << PE3);
-
-    TCCR3A = (1 << COM3A1) | (1 << WGM30);
-    TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
-    OCR3A = LCD_BRIGHTNESS;
-    _delay_ms(40);
-
+static void lcd_reset_controller(void) {
+    _delay_ms(25);
     PORTA &= ~(1 << PA0);
     lcd_write_nibble(0x03U);
     _delay_ms(5);
@@ -79,6 +59,38 @@ static void lcd_init_hw(void) {
     lcd_send_byte(0x0CU, 0U);
     lcd_send_byte(0x06U, 0U);
     lcd_send_byte(0x01U, 0U);
+    return;
+}
+
+static void lcd_set_power(DeskHubSystem *sys, uint8_t on) {
+    if (sys != NULL) {
+        sys->backlight_on = (on != 0U) ? 1U : 0U;
+        if (sys->backlight_on != 0U) {
+            PORTH |= (1 << PH3);
+            lcd_reset_controller();
+            OCR3A = LCD_BRIGHTNESS;
+            TCCR3A |= (1 << COM3A1);
+        } else {
+            TCCR3A &= ~((1 << COM3A1) | (1 << COM3A0));
+            PORTE &= ~(1 << PE3);
+            PORTA &= ~((1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5));
+            PORTH &= ~(1 << PH3);
+        }
+    }
+    return;
+}
+
+static void lcd_init_hw(void) {
+    DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5);
+    DDRE |= (1 << PE3);
+    DDRH |= (1 << PH3);
+
+    TCCR3A = (1 << COM3A1) | (1 << WGM30);
+    TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
+    OCR3A = LCD_BRIGHTNESS;
+
+    PORTH |= (1 << PH3);
+    lcd_reset_controller();
     return;
 }
 
@@ -157,37 +169,38 @@ static uint8_t read_dht11(uint8_t *temp_out, uint8_t *hum_out) {
 
     DDRE |= (1 << PE4);
     PORTE &= ~(1 << PE4);
-    _delay_ms(18);
+    _delay_ms(20);
 
     cli();
     DDRE &= ~(1 << PE4);
     PORTE |= (1 << PE4);
 
-    if (dht_measure_pulse(1U, 30U) >= 30U) {
+    if (dht_measure_pulse(1U, 60U) >= 60U) {
         abort_read = 1U;
     }
-    if ((abort_read == 0U) && (dht_measure_pulse(0U, 35U) >= 35U)) {
+    if ((abort_read == 0U) && (dht_measure_pulse(0U, 60U) >= 60U)) {
         abort_read = 1U;
     }
-    if ((abort_read == 0U) && (dht_measure_pulse(1U, 35U) >= 35U)) {
+    if ((abort_read == 0U) && (dht_measure_pulse(1U, 60U) >= 60U)) {
         abort_read = 1U;
     }
 
     for (i = 0U; (i < 40U) && (abort_read == 0U); i++) {
-        if (dht_measure_pulse(0U, 25U) >= 25U) {
+        if (dht_measure_pulse(0U, 40U) >= 40U) {
             abort_read = 1U;
         } else {
-            pulse_ticks = dht_measure_pulse(1U, 30U);
-            if (pulse_ticks >= 30U) {
+            pulse_ticks = dht_measure_pulse(1U, 50U);
+            if (pulse_ticks >= 50U) {
                 abort_read = 1U;
-            } else if (pulse_ticks > 11U) {
+            } else if (pulse_ticks > 12U) {
                 data[i / 8U] |= (uint8_t)(1U << (7U - (i % 8U)));
             }
         }
     }
     SREG = sreg;
 
-    if ((abort_read == 0U) && ((uint8_t)(data[0] + data[1] + data[2] + data[3]) == data[4])) {
+    if ((abort_read == 0U) && ((data[0] != 0U) || (data[2] != 0U)) &&
+        ((uint8_t)(data[0] + data[1] + data[2] + data[3]) == data[4])) {
         if ((temp_out != NULL) && (hum_out != NULL)) {
             *hum_out = data[0];
             *temp_out = data[2];
@@ -219,6 +232,22 @@ static void record_sample(DeskHubSystem *sys) {
     return;
 }
 
+static uint16_t get_focus_seconds(PomoMode mode) {
+    uint16_t sec = FOCUS_50_SEC;
+    if (mode == POMO_MODE_25_5) {
+        sec = FOCUS_25_SEC;
+    }
+    return sec;
+}
+
+static uint16_t get_break_seconds(PomoMode mode) {
+    uint16_t sec = BREAK_10_SEC;
+    if (mode == POMO_MODE_25_5) {
+        sec = BREAK_5_SEC;
+    }
+    return sec;
+}
+
 DeskHubSystem *desk_hub_create(void) {
     DeskHubSystem *sys = (DeskHubSystem *)malloc(sizeof(DeskHubSystem));
     if (sys != NULL) {
@@ -240,14 +269,17 @@ DeskHubSystem *desk_hub_create(void) {
         sys->last_lcd_ms = 0UL;
         sys->last_pomo_tick_ms = 0UL;
 
+        sys->pomo_mode = POMO_MODE_50_10;
         sys->pomo_state = POMO_IDLE;
         sys->pomo_running = 0U;
-        sys->pomo_seconds_left = FOCUS_DURATION_SEC;
+        sys->pomo_seconds_left = FOCUS_50_SEC;
 
         sys->backlight_on = 1U;
         sys->btn_was_pressed = 0U;
         sys->btn_long_handled = 0U;
+        sys->btn_click_count = 0U;
         sys->btn_press_start_ms = 0UL;
+        sys->btn_last_release_ms = 0UL;
 
         DDRE &= ~(1 << PE5);
         PORTE |= (1 << PE5);
@@ -256,7 +288,6 @@ DeskHubSystem *desk_hub_create(void) {
         ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
 
         lcd_init_hw();
-        lcd_set_power(sys, 1U);
         _delay_ms(1000);
         sys->current.lux_pct = read_ldr_percent();
         (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
@@ -285,7 +316,7 @@ void desk_hub_step(DeskHubSystem *sys) {
     char line1[17];
     uint16_t mins = 0U;
     uint16_t secs = 0U;
-    const char *label = "LISTO";
+    const char *label = "50/10";
 
     if (sys != NULL) {
         now_tcnt = TCNT1;
@@ -297,6 +328,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             sys->uptime_ms++;
         }
 
+        /* 1. Pulsador D3: mantener 2 s = apagar/encender LCD | 1 toque = start/pausa | 2 toques = cambiar modo */
         is_pressed = ((PINE & (1 << PE5)) == 0U) ? 1U : 0U;
         if ((is_pressed != 0U) && (sys->btn_was_pressed == 0U)) {
             sys->btn_was_pressed = 1U;
@@ -306,6 +338,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             held_ms = sys->uptime_ms - sys->btn_press_start_ms;
             if ((held_ms >= 2000UL) && (sys->btn_long_handled == 0U)) {
                 sys->btn_long_handled = 1U;
+                sys->btn_click_count = 0U;
                 lcd_set_power(sys, (sys->backlight_on != 0U) ? 0U : 1U);
                 if (sys->backlight_on != 0U) {
                     sys->last_lcd_ms = 0UL;
@@ -314,10 +347,34 @@ void desk_hub_step(DeskHubSystem *sys) {
             }
         } else if ((is_pressed == 0U) && (sys->btn_was_pressed != 0U)) {
             held_ms = sys->uptime_ms - sys->btn_press_start_ms;
-            if ((sys->btn_long_handled == 0U) && (held_ms >= 50UL)) {
+            if ((sys->btn_long_handled == 0U) && (held_ms >= 40UL)) {
+                sys->btn_click_count++;
+                sys->btn_last_release_ms = sys->uptime_ms;
+            }
+            sys->btn_was_pressed = 0U;
+            sys->btn_long_handled = 0U;
+        }
+
+        if ((is_pressed == 0U) && (sys->btn_click_count > 0U)) {
+            if (sys->btn_click_count >= 2U) {
+                sys->btn_click_count = 0U;
                 if (sys->backlight_on == 0U) {
                     lcd_set_power(sys, 1U);
-                    sys->last_lcd_ms = 0UL;
+                }
+                if (sys->pomo_mode == POMO_MODE_50_10) {
+                    sys->pomo_mode = POMO_MODE_25_5;
+                } else {
+                    sys->pomo_mode = POMO_MODE_50_10;
+                }
+                sys->pomo_state = POMO_IDLE;
+                sys->pomo_running = 0U;
+                sys->pomo_seconds_left = get_focus_seconds(sys->pomo_mode);
+                sys->last_lcd_ms = 0UL;
+                buzzer_beep(2U, 45U);
+            } else if ((sys->uptime_ms - sys->btn_last_release_ms) >= DOUBLE_CLICK_MS) {
+                sys->btn_click_count = 0U;
+                if (sys->backlight_on == 0U) {
+                    lcd_set_power(sys, 1U);
                 }
                 if (sys->pomo_state == POMO_IDLE) {
                     sys->pomo_state = POMO_FOCUS;
@@ -326,12 +383,12 @@ void desk_hub_step(DeskHubSystem *sys) {
                     sys->pomo_running = (sys->pomo_running != 0U) ? 0U : 1U;
                 }
                 sys->last_pomo_tick_ms = sys->uptime_ms;
+                sys->last_lcd_ms = 0UL;
                 buzzer_beep(1U, 40U);
             }
-            sys->btn_was_pressed = 0U;
-            sys->btn_long_handled = 0U;
         }
 
+        /* 2. Cuenta atrás Pomodoro (50->10 o 25->5) con aviso sonoro y encendido de LCD */
         if ((sys->pomo_running != 0U) && ((sys->uptime_ms - sys->last_pomo_tick_ms) >= 1000UL)) {
             sys->last_pomo_tick_ms += 1000UL;
             if (sys->pomo_seconds_left > 0U) {
@@ -339,19 +396,20 @@ void desk_hub_step(DeskHubSystem *sys) {
             } else {
                 if (sys->backlight_on == 0U) {
                     lcd_set_power(sys, 1U);
-                    sys->last_lcd_ms = 0UL;
                 }
+                sys->last_lcd_ms = 0UL;
                 if (sys->pomo_state == POMO_FOCUS) {
                     sys->pomo_state = POMO_BREAK;
-                    sys->pomo_seconds_left = BREAK_DURATION_SEC;
+                    sys->pomo_seconds_left = get_break_seconds(sys->pomo_mode);
                 } else {
                     sys->pomo_state = POMO_FOCUS;
-                    sys->pomo_seconds_left = FOCUS_DURATION_SEC;
+                    sys->pomo_seconds_left = get_focus_seconds(sys->pomo_mode);
                 }
-                buzzer_beep(3U, 120U);
+                buzzer_beep(3U, 140U);
             }
         }
 
+        /* 3. Lectura de sensores cada 2000 ms */
         if ((sys->uptime_ms - sys->last_sensor_ms) >= 2000UL) {
             sys->last_sensor_ms = sys->uptime_ms;
             sys->current.lux_pct = read_ldr_percent();
@@ -360,12 +418,23 @@ void desk_hub_step(DeskHubSystem *sys) {
             }
         }
 
+        /* 4. Refresco de pantalla cada 250 ms si está encendida */
         if ((sys->backlight_on != 0U) && ((sys->uptime_ms - sys->last_lcd_ms) >= 250UL)) {
             sys->last_lcd_ms = sys->uptime_ms;
-            if (sys->pomo_state == POMO_FOCUS) {
-                label = (sys->pomo_running != 0U) ? "FOCUS" : "PAUSA";
-            } else if (sys->pomo_state == POMO_BREAK) {
-                label = (sys->pomo_running != 0U) ? "DESC " : "PAUSA";
+            if (sys->pomo_state == POMO_IDLE) {
+                label = (sys->pomo_mode == POMO_MODE_50_10) ? "50/10" : "25/5 ";
+            } else if (sys->pomo_state == POMO_FOCUS) {
+                if (sys->pomo_running != 0U) {
+                    label = (sys->pomo_mode == POMO_MODE_50_10) ? "FOC50" : "FOC25";
+                } else {
+                    label = "PAUSA";
+                }
+            } else {
+                if (sys->pomo_running != 0U) {
+                    label = (sys->pomo_mode == POMO_MODE_50_10) ? "DES10" : "DES05";
+                } else {
+                    label = "PAUSA";
+                }
             }
             mins = (uint16_t)(sys->pomo_seconds_left / 60U);
             secs = (uint16_t)(sys->pomo_seconds_left % 60U);
@@ -379,7 +448,7 @@ void desk_hub_step(DeskHubSystem *sys) {
                                (unsigned int)sys->current.hum_pct,
                                (unsigned int)sys->current.lux_pct);
             }
-            (void)snprintf(line1, sizeof(line1), "%-6s %02u:%02u",
+            (void)snprintf(line1, sizeof(line1), "%-7s %02u:%02u",
                            label,
                            (unsigned int)mins,
                            (unsigned int)secs);
