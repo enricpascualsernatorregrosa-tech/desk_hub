@@ -1,15 +1,13 @@
 #include "desk_hub.h"
+#include <stddef.h>
 
-int main(void) {
-    int exit_code = 1;
-    DeskHubSystem *sys = NULL;
-
-    if (desk_hub_init(&sys) != 0) {
-        exit_code = 0;
-        for (;;) {
+void desk_hub_run(void) {
+    DeskHubSystem *sys = desk_hub_create();
+    if (sys != NULL) {
+        while (1) {
             desk_hub_step(sys);
         }
         desk_hub_destroy(sys);
     }
-    return exit_code;
+    return;
 }
