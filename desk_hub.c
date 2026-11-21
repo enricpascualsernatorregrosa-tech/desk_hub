@@ -6,6 +6,7 @@
 
 #define FOCUS_DURATION_SEC 1500U /* 25:00 */
 #define BREAK_DURATION_SEC 300U  /* 05:00 */
+#define LCD_BRIGHTNESS     55U   /* Brillo PWM (1 = mínimo, 255 = máximo) */
 
 static void lcd_pulse_enable(void) {
     PORTA |= (1 << PA1);
@@ -39,10 +40,30 @@ static void lcd_send_byte(uint8_t value, uint8_t is_data) {
     return;
 }
 
+static void lcd_set_power(DeskHubSystem *sys, uint8_t on) {
+    if (sys != NULL) {
+        sys->backlight_on = (on != 0U) ? 1U : 0U;
+        if (sys->backlight_on != 0U) {
+            OCR3A = LCD_BRIGHTNESS;
+            TCCR3A |= (1 << COM3A1);  /* Activa PWM tenue en D5 (OC3A) */
+            lcd_send_byte(0x0CU, 0U); /* Enciende caracteres del LCD */
+        } else {
+            TCCR3A &= ~((1 << COM3A1) | (1 << COM3A0)); /* Desconecta PWM */
+            PORTE &= ~(1 << PE3);     /* D5 a 0V exactos (sin luz) */
+            lcd_send_byte(0x08U, 0U); /* Apaga caracteres del LCD */
+        }
+    }
+    return;
+}
+
 static void lcd_init_hw(void) {
     DDRA |= (1 << PA0) | (1 << PA1) | (1 << PA2) | (1 << PA3) | (1 << PA4) | (1 << PA5);
-    DDRE |= (1 << PE3);  /* D5: luz de fondo LCD */
-    PORTE |= (1 << PE3); /* Encendida al arrancar */
+    DDRE |= (1 << PE3); /* D5 (OC3A) como salida */
+
+    /* Timer3 en Fast PWM 8-bit (~976 Hz) para regular brillo sin parpadeo */
+    TCCR3A = (1 << COM3A1) | (1 << WGM30);
+    TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
+    OCR3A = LCD_BRIGHTNESS;
     _delay_ms(40);
 
     PORTA &= ~(1 << PA0);
@@ -104,7 +125,6 @@ static uint8_t read_dht11(uint8_t *temp_out, uint8_t *hum_out) {
     uint8_t i = 0U;
     uint16_t guard = 0U;
 
-    /* Señal de inicio en D2 (PE4) */
     DDRE |= (1 << PE4);
     PORTE &= ~(1 << PE4);
     _delay_ms(18);
@@ -112,7 +132,6 @@ static uint8_t read_dht11(uint8_t *temp_out, uint8_t *hum_out) {
     _delay_us(30);
     DDRE &= ~(1 << PE4);
 
-    /* Respuesta del DHT11 */
     guard = 0U;
     while (((PINE & (1 << PE4)) != 0U) && (guard < 200U)) { _delay_us(1); guard++; }
     if (guard < 200U) {
@@ -147,7 +166,7 @@ static void record_sample(DeskHubSystem *sys) {
     if (sys->history_count >= sys->history_cap) {
         new_cap = (sys->history_cap == 0U) ? 8U : (uint16_t)(sys->history_cap * 2U);
         if (new_cap > 64U) {
-            sys->history_count = 0U; /* Buffer circular al llenar 64 muestras */
+            sys->history_count = 0U;
         } else {
             resized = (SensorSample *)realloc(sys->history, sizeof(SensorSample) * new_cap);
             if (resized != NULL) {
@@ -173,7 +192,6 @@ DeskHubSystem *desk_hub_create(void) {
         sys->history_count = 0U;
         sys->history_cap = (sys->history != NULL) ? 8U : 0U;
 
-        /* Timer1 prescaler 64 -> 250 ticks = 1 ms exacto a 16 MHz */
         TCCR1A = 0x00U;
         TCCR1B = (1 << CS11) | (1 << CS10);
         TCNT1 = 0U;
@@ -194,7 +212,6 @@ DeskHubSystem *desk_hub_create(void) {
         sys->btn_long_handled = 0U;
         sys->btn_press_start_ms = 0UL;
 
-        /* Pines: D3 (PE5) botón pull-up, D4 (PG5) buzzer, ADC0 habilitado */
         DDRE &= ~(1 << PE5);
         PORTE |= (1 << PE5);
         DDRG |= (1 << PG5);
@@ -202,6 +219,7 @@ DeskHubSystem *desk_hub_create(void) {
         ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
 
         lcd_init_hw();
+        lcd_set_power(sys, 1U);
         sys->current.lux_pct = read_ldr_percent();
         (void)read_dht11(&sys->current.temp_c, &sys->current.hum_pct);
         buzzer_beep(1U, 60U);
@@ -232,7 +250,7 @@ void desk_hub_step(DeskHubSystem *sys) {
     const char *label = "LISTO";
 
     if (sys != NULL) {
-        /* 1. Actualizar reloj interno en milisegundos */
+        /* 1. Reloj interno en ms */
         now_tcnt = TCNT1;
         delta = (uint16_t)(now_tcnt - sys->last_tcnt);
         sys->last_tcnt = now_tcnt;
@@ -242,7 +260,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             sys->uptime_ms++;
         }
 
-        /* 2. Pulsador D3: toque corto = Pomodoro | 2 s = Apagar/Encender LCD */
+        /* 2. Pulsador D3: mantener 2 s apaga/enciende | toque corto controla Pomodoro y enciende LCD */
         is_pressed = ((PINE & (1 << PE5)) == 0U) ? 1U : 0U;
         if ((is_pressed != 0U) && (sys->btn_was_pressed == 0U)) {
             sys->btn_was_pressed = 1U;
@@ -252,19 +270,19 @@ void desk_hub_step(DeskHubSystem *sys) {
             held_ms = sys->uptime_ms - sys->btn_press_start_ms;
             if ((held_ms >= 2000UL) && (sys->btn_long_handled == 0U)) {
                 sys->btn_long_handled = 1U;
-                sys->backlight_on = (sys->backlight_on != 0U) ? 0U : 1U;
+                lcd_set_power(sys, (sys->backlight_on != 0U) ? 0U : 1U);
                 if (sys->backlight_on != 0U) {
-                    PORTE |= (1 << PE3);
-                    lcd_send_byte(0x0CU, 0U);
+                    sys->last_lcd_ms = 0UL;
                     buzzer_beep(1U, 40U);
-                } else {
-                    PORTE &= ~(1 << PE3);
-                    lcd_send_byte(0x08U, 0U);
                 }
             }
         } else if ((is_pressed == 0U) && (sys->btn_was_pressed != 0U)) {
             held_ms = sys->uptime_ms - sys->btn_press_start_ms;
-            if ((sys->btn_long_handled == 0U) && (held_ms >= 50UL) && (sys->backlight_on != 0U)) {
+            if ((sys->btn_long_handled == 0U) && (held_ms >= 50UL)) {
+                if (sys->backlight_on == 0U) {
+                    lcd_set_power(sys, 1U);
+                    sys->last_lcd_ms = 0UL;
+                }
                 if (sys->pomo_state == POMO_IDLE) {
                     sys->pomo_state = POMO_FOCUS;
                     sys->pomo_running = 1U;
@@ -278,13 +296,16 @@ void desk_hub_step(DeskHubSystem *sys) {
             sys->btn_long_handled = 0U;
         }
 
-        /* 3. Cuenta atrás del Pomodoro cada 1000 ms */
+        /* 3. Cuenta atrás Pomodoro: despierta la pantalla al llegar a 00:00 antes de pitar */
         if ((sys->pomo_running != 0U) && ((sys->uptime_ms - sys->last_pomo_tick_ms) >= 1000UL)) {
             sys->last_pomo_tick_ms += 1000UL;
             if (sys->pomo_seconds_left > 0U) {
                 sys->pomo_seconds_left--;
             } else {
-                buzzer_beep(3U, 120U);
+                if (sys->backlight_on == 0U) {
+                    lcd_set_power(sys, 1U);
+                    sys->last_lcd_ms = 0UL;
+                }
                 if (sys->pomo_state == POMO_FOCUS) {
                     sys->pomo_state = POMO_BREAK;
                     sys->pomo_seconds_left = BREAK_DURATION_SEC;
@@ -292,6 +313,7 @@ void desk_hub_step(DeskHubSystem *sys) {
                     sys->pomo_state = POMO_FOCUS;
                     sys->pomo_seconds_left = FOCUS_DURATION_SEC;
                 }
+                buzzer_beep(3U, 120U);
             }
         }
 
@@ -303,7 +325,7 @@ void desk_hub_step(DeskHubSystem *sys) {
             record_sample(sys);
         }
 
-        /* 5. Refresco de pantalla LCD cada 250 ms si está encendida */
+        /* 5. Refresco de pantalla cada 250 ms solo si está encendida */
         if ((sys->backlight_on != 0U) && ((sys->uptime_ms - sys->last_lcd_ms) >= 250UL)) {
             sys->last_lcd_ms = sys->uptime_ms;
             if (sys->pomo_state == POMO_FOCUS) {
@@ -326,6 +348,9 @@ void desk_hub_step(DeskHubSystem *sys) {
             lcd_print_line(0U, line0);
             lcd_print_line(1U, line1);
         }
+    }
+    return;
+}
     }
     return;
 }
