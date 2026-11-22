@@ -1,3 +1,4 @@
+/* main.c */
 #include "desk_hub.h"
 #include <stddef.h>
 
