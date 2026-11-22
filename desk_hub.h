@@ -5,29 +5,21 @@
 
 typedef enum {
     POMO_MODE_50_10 = 0,
-    POMO_MODE_25_5 = 1
+    POMO_MODE_25_5  = 1
 } PomoMode;
 
 typedef enum {
-    POMO_IDLE = 0,
+    POMO_IDLE  = 0,
     POMO_FOCUS = 1,
     POMO_BREAK = 2
 } PomoState;
 
 typedef enum {
-    MELODY_BOOT = 0,
-    MELODY_START = 1,
-    MELODY_PAUSE = 2,
-    MELODY_MODE = 3,
-    MELODY_RESET = 4,
-    MELODY_FOCUS_END = 5,
-    MELODY_BREAK_END = 6
-} MelodyId;
-
-typedef struct {
-    uint16_t freq_hz;
-    uint16_t duration_ms;
-} Note;
+    LCD_SCR_CLIMATE = 0, /* [1/4] Temperatura, humedad, luz y Pomodoro */
+    LCD_SCR_MUSIC   = 1, /* [2/4] Cancion o canal actual en la tablet  */
+    LCD_SCR_EVENT   = 2, /* [3/4] Proximo evento o tarea pendiente     */
+    LCD_SCR_STATS   = 3  /* [4/4] Sesiones EEPROM y min/max termico    */
+} LcdScreen;
 
 typedef struct {
     uint8_t temp_c;
@@ -40,6 +32,9 @@ typedef struct {
     SensorSample *history;
     uint16_t history_count;
     uint16_t history_cap;
+    uint8_t temp_min;
+    uint8_t temp_max;
+    uint16_t eeprom_sessions;
 
     uint16_t last_tcnt;
     uint16_t tick_accum;
@@ -53,12 +48,18 @@ typedef struct {
     uint8_t pomo_running;
     uint16_t pomo_seconds_left;
 
+    LcdScreen lcd_screen;
     uint8_t backlight_on;
     uint8_t btn_was_pressed;
-    uint8_t btn_long_handled;
+    uint8_t btn_stage;
     uint8_t btn_click_count;
     uint32_t btn_press_start_ms;
     uint32_t btn_last_release_ms;
+
+    char song_title[17];
+    char event_title[17];
+    char rx_buf[40];
+    uint8_t rx_len;
 } DeskHubSystem;
 
 DeskHubSystem *desk_hub_create(void);
