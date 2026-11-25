@@ -1,0 +1,4223 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Desk Hub — Panel de Escritorio &amp; Telemetría Arduino</title>
+
+  <style>
+    /* ==========================================================================
+       DESK HUB — SISTEMA DE DISEÑO OLED DARK MODE BENTO GRID (100% OFFLINE)
+       ========================================================================== */
+    :root {
+      --bg-oled: #000000;
+      --card-bg: #0d0f14;
+      --card-bg-elevated: #141720;
+      --card-border: rgba(255, 255, 255, 0.09);
+      --card-border-hover: rgba(255, 255, 255, 0.2);
+      --text-primary: #f5f5f7;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+
+      /* Acentos funcionales */
+      --accent-focus: #ff453a;
+      --accent-short: #30d158;
+      --accent-long: #0a84ff;
+      --accent-spotify: #1ed760;
+      --accent-notion: #ffffff;
+
+      --sensor-temp: #ff6b81;
+      --sensor-hum: #38bdf8;
+      --sensor-light: #ffd60a;
+
+      --radius-bento: 24px;
+      --radius-inner: 16px;
+      --ease-apple: cubic-bezier(0.22, 1, 0.36, 1);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100vh;
+      background-color: var(--bg-oled);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    @media (min-width: 960px) and (min-height: 620px) {
+      html, body {
+        height: 100vh;
+        overflow: hidden;
+      }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+    }
+
+    .font-bold {
+      font-weight: 700;
+    }
+
+    /* Contenedor Principal */
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 12px 16px 14px 16px;
+      gap: 12px;
+    }
+
+    /* ==========================================================================
+       BARRA SUPERIOR SLIM
+       ========================================================================== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      min-height: 44px;
+      padding: 6px 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #30d158;
+      box-shadow: 0 0 10px #30d158;
+      animation: pulseLive 2.4s infinite ease-in-out;
+    }
+
+    .live-dot.sim {
+      background-color: #ffd60a;
+      box-shadow: 0 0 10px #ffd60a;
+    }
+
+    .live-dot.offline {
+      background-color: #ff453a;
+      box-shadow: 0 0 10px #ff453a;
+      animation: none;
+    }
+
+    @keyframes pulseLive {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 7px 14px;
+      min-height: 40px;
+      border-radius: 999px;
+      background: var(--card-bg-elevated);
+      border: 1px solid var(--card-border);
+      color: var(--text-primary);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s var(--ease-apple);
+    }
+
+    .pill-btn:hover {
+      border-color: var(--card-border-hover);
+      background: #1b202c;
+    }
+
+    .pill-btn.active-toggle {
+      border-color: rgba(48, 209, 88, 0.45);
+      background: rgba(48, 209, 88, 0.14);
+      color: #4ade80;
+    }
+
+    .pill-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* ==========================================================================
+       BENTO GRID INICIAL (5 TARJETAS INTERACTIVAS — IDÉNTICO AL ORIGINAL)
+       ========================================================================== */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    @media (min-width: 720px) and (max-width: 959px) {
+      .bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .tile-spotify {
+        grid-column: span 2;
+      }
+    }
+
+    @media (min-width: 960px) {
+      .bento-grid {
+        grid-template-columns: repeat(12, 1fr);
+        grid-template-rows: 1.02fr 1fr;
+      }
+      .tile-clock   { grid-column: span 5; }
+      .tile-pomo    { grid-column: span 7; }
+      .tile-env     { grid-column: span 4; }
+      .tile-cal     { grid-column: span 4; }
+      .tile-spotify { grid-column: span 4; }
+    }
+
+    .bento-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-bento);
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+      transition: transform 0.25s var(--ease-apple), border-color 0.25s var(--ease-apple), background-color 0.25s var(--ease-apple);
+    }
+
+    .bento-card:hover {
+      border-color: var(--card-border-hover);
+      background: #0f1117;
+      transform: translateY(-2px);
+    }
+
+    .bento-card:active {
+      transform: scale(0.992);
+    }
+
+    .tile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .tile-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .hint-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .bento-card:hover .hint-badge {
+      background: rgba(255, 255, 255, 0.11);
+      color: #ffffff;
+    }
+
+    /* --- TARJETA 1: RELOJ LOCAL --- */
+    .tile-clock {
+      background: radial-gradient(circle at 85% 15%, rgba(255, 255, 255, 0.045), transparent 55%), var(--card-bg);
+    }
+
+    .home-clock-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 4px 0;
+    }
+
+    .home-clock-main {
+      font-size: clamp(3.3rem, 5.4vw, 4.9rem);
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 0.98;
+      color: #ffffff;
+    }
+
+    .home-clock-sec {
+      font-family: var(--font-mono);
+      font-size: clamp(1.2rem, 2vw, 1.7rem);
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .home-clock-date {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: capitalize;
+    }
+
+    /* --- TARJETA 2: POMODORO --- */
+    .tile-pomo-body {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .pomo-mini-ring-wrap {
+      position: relative;
+      width: min(148px, 19vh);
+      height: min(148px, 19vh);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pomo-mini-ring-wrap svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .pomo-mini-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pomo-mini-time {
+      font-size: clamp(1.65rem, 2.7vw, 2.35rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #ffffff;
+    }
+
+    .pomo-mini-sub {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .pomo-tile-right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .pomo-mode-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      align-self: flex-start;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      background: rgba(255, 69, 58, 0.14);
+      color: #ff6961;
+      border: 1px solid rgba(255, 69, 58, 0.28);
+    }
+
+    .pomo-inline-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-inline-primary {
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 13px;
+      border: none;
+      background: #ffffff;
+      color: #000000;
+      font-size: 13px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .btn-inline-primary:active {
+      transform: scale(0.95);
+    }
+
+    .btn-inline-sec {
+      min-height: 44px;
+      min-width: 44px;
+      padding: 0 13px;
+      border-radius: 13px;
+      background: var(--card-bg-elevated);
+      border: 1px solid var(--card-border);
+      color: var(--text-primary);
+      font-size: 12.5px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .btn-inline-sec:hover {
+      background: #1c202b;
+    }
+
+    .btn-inline-sec:active {
+      transform: scale(0.95);
+    }
+
+    .session-dots {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .s-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .s-dot.filled {
+      background: var(--accent-focus);
+      box-shadow: 0 0 8px var(--accent-focus);
+    }
+
+    /* --- TARJETA 3: TELEMETRÍA ARDUINO MEGA 2560 --- */
+    .env-metrics-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .env-row {
+      background: var(--card-bg-elevated);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 9px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .env-row-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12.5px;
+    }
+
+    .env-status-chip {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-secondary);
+    }
+
+    .env-spark-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .env-bar-bg {
+      flex: 1;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+    }
+
+    .env-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.5s var(--ease-apple);
+    }
+
+    .sparkline-svg {
+      width: 56px;
+      height: 16px;
+      flex-shrink: 0;
+      overflow: visible;
+    }
+
+    /* --- TARJETA 4: CALENDARIO ICAL & NOTION --- */
+    .cal-tile-split {
+      display: grid;
+      grid-template-columns: 1.02fr 0.98fr;
+      gap: 12px;
+      flex: 1;
+      min-height: 0;
+      align-items: stretch;
+    }
+
+    .mini-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+      text-align: center;
+      align-content: center;
+    }
+
+    .mini-cal-wd {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding-bottom: 2px;
+    }
+
+    .mini-cal-day {
+      aspect-ratio: 1 / 1;
+      max-height: 24px;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 24px;
+      border-radius: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      color: var(--text-primary);
+    }
+
+    .mini-cal-day.other {
+      color: #3a3a42;
+    }
+
+    .mini-cal-day.today {
+      background: #ffffff;
+      color: #000000;
+      font-weight: 800;
+    }
+
+    .mini-cal-day.has-event::after {
+      content: "";
+      position: absolute;
+      bottom: 2px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #0a84ff;
+    }
+
+    .mini-cal-day.today.has-event::after {
+      background: #000000;
+    }
+
+    .mini-agenda-col {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-height: 0;
+    }
+
+    .mini-filter-tabs {
+      display: flex;
+      gap: 4px;
+    }
+
+    .mini-tab-pill {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .mini-tab-pill.active {
+      background: #ffffff;
+      color: #000000;
+      border-color: #ffffff;
+    }
+
+    .mini-events-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      overflow-y: auto;
+      padding-right: 2px;
+      flex: 1;
+    }
+
+    .mini-events-list::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    .mini-events-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .mini-event-chip {
+      background: var(--card-bg-elevated);
+      border-left: 3px solid #0a84ff;
+      border-radius: 9px;
+      padding: 5px 8px;
+      font-size: 11.5px;
+    }
+
+    .mini-event-chip.notion-item {
+      border-left-color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .notion-mini-check {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      border: 1.5px solid rgba(255, 255, 255, 0.45);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #000;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .notion-mini-check.done {
+      background: #ffffff;
+      border-color: #ffffff;
+    }
+
+    .mini-event-time {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .mini-event-title {
+      color: #f5f5f7;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mini-event-title.done-text {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    /* --- TARJETA 5: SPOTIFY & MÚSICA --- */
+    .sp-account-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 10px 3px 4px;
+      border-radius: 999px;
+      background: rgba(30, 215, 96, 0.12);
+      border: 1px solid rgba(30, 215, 96, 0.3);
+      color: #ffffff;
+      font-size: 11.5px;
+      font-weight: 700;
+    }
+
+    .sp-avatar-mini {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #1ed760;
+      color: #000000;
+      font-size: 10px;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .sp-avatar-mini img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .spotify-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+      scrollbar-width: none;
+    }
+
+    .spotify-pills::-webkit-scrollbar {
+      display: none;
+    }
+
+    .sp-pill {
+      min-height: 30px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      background: var(--card-bg-elevated);
+      border: 1px solid var(--card-border);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .sp-pill:hover {
+      border-color: rgba(30, 215, 96, 0.4);
+      color: #ffffff;
+    }
+
+    .sp-pill.active {
+      background: rgba(30, 215, 96, 0.18);
+      border-color: rgba(30, 215, 96, 0.55);
+      color: #1ed760;
+    }
+
+    .spotify-iframe-wrap {
+      flex: 1;
+      min-height: 152px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #121216;
+    }
+
+    .spotify-iframe-wrap iframe {
+      width: 100%;
+      height: 100%;
+      min-height: 152px;
+      border: none;
+      display: block;
+    }
+
+    /* ==========================================================================
+       VISTAS OVERLAY A PANTALLA COMPLETA (TRANSICIONES SUAVES)
+       ========================================================================== */
+    .fs-overlay {
+      position: fixed;
+      inset: 0;
+      background: #000000;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 24px 24px 24px;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.975);
+      transition: opacity 0.28s var(--ease-apple), transform 0.28s var(--ease-apple);
+      overflow-y: auto;
+    }
+
+    .fs-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1);
+    }
+
+    .fs-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      z-index: 5;
+      flex-shrink: 0;
+    }
+
+    .back-home-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      min-height: 44px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+
+    .back-home-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .back-home-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* --- VISTA A: RELOJ GIGANTE ESTILO IPHONE 13 LOCK SCREEN / STANDBY --- */
+    #viewClock {
+      justify-content: space-between;
+      transition: background 0.4s ease, opacity 0.28s var(--ease-apple), transform 0.28s var(--ease-apple);
+    }
+
+    #viewClock.theme-oled {
+      background: #000000;
+      --ios-clock-color: #ffffff;
+      --ios-date-color: rgba(255, 255, 255, 0.78);
+    }
+
+    #viewClock.theme-amber {
+      background: #000000;
+      --ios-clock-color: #ff453a;
+      --ios-date-color: rgba(255, 69, 58, 0.78);
+    }
+
+    #viewClock.theme-midnight {
+      background: radial-gradient(circle at 50% 25%, #0c1e3c 0%, #030712 65%, #000000 100%);
+      --ios-clock-color: #e0f2fe;
+      --ios-date-color: #7dd3fc;
+    }
+
+    #viewClock.theme-aurora {
+      background: radial-gradient(circle at 30% 20%, rgba(16, 185, 129, 0.18), transparent 50%),
+                  radial-gradient(circle at 75% 75%, rgba(99, 102, 241, 0.2), transparent 55%),
+                  #020406;
+      --ios-clock-color: #f8fafc;
+      --ios-date-color: #6ee7b7;
+    }
+
+    .ios-clock-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 12px 0;
+      transition: transform 2.4s ease-in-out;
+      will-change: transform;
+    }
+
+    .ios-date-header {
+      font-size: clamp(1.1rem, 2.2vw, 1.65rem);
+      font-weight: 700;
+      text-transform: capitalize;
+      color: var(--ios-date-color, rgba(255, 255, 255, 0.78));
+      margin-bottom: 6px;
+    }
+
+    .ios-mega-digits {
+      font-size: clamp(5.5rem, 20vw, 14rem);
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 0.92;
+      color: var(--ios-clock-color, #ffffff);
+      text-shadow: 0 12px 45px rgba(0, 0, 0, 0.45);
+    }
+
+    .ios-widgets-dock {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .ios-lock-widget {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 18px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      backdrop-filter: blur(14px);
+      color: var(--ios-clock-color, #ffffff);
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .ios-lock-widget:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateY(-2px);
+    }
+
+    /* --- VISTA B: POMODORO STUDIO GRANDE Y OPCIONES --- */
+    .pomo-studio-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
+      max-width: 1280px;
+      width: 100%;
+      margin: 14px auto 0 auto;
+      align-items: center;
+    }
+
+    @media (min-width: 900px) {
+      .pomo-studio-grid {
+        grid-template-columns: 1.05fr 0.95fr;
+      }
+    }
+
+    .pomo-big-ring-box {
+      position: relative;
+      width: min(310px, 40vh);
+      height: min(310px, 40vh);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pomo-big-ring-box svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .pomo-big-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pomo-big-digits {
+      font-size: clamp(3.4rem, 6vw, 5.2rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: #ffffff;
+      line-height: 1;
+    }
+
+    .studio-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .stepper-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 14px;
+      background: var(--card-bg-elevated);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .stepper-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: #1d1d24;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .step-btn:active {
+      transform: scale(0.92);
+    }
+
+    .ios-switch {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .ios-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .ios-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #27272f;
+      border-radius: 999px;
+      transition: 0.25s;
+    }
+
+    .ios-slider::before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #ffffff;
+      border-radius: 50%;
+      transition: 0.25s;
+    }
+
+    .ios-switch input:checked + .ios-slider {
+      background-color: #30d158;
+    }
+
+    .ios-switch input:checked + .ios-slider::before {
+      transform: translateX(20px);
+    }
+
+    /* --- VISTA C: CALENDARIO ICAL & NOTION WORKSPACE --- */
+    .cal-studio-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      max-width: 1420px;
+      width: 100%;
+      margin: 14px auto 0 auto;
+      min-height: 0;
+    }
+
+    @media (min-width: 920px) {
+      .cal-studio-grid {
+        grid-template-columns: 1fr 1.08fr;
+      }
+    }
+
+    .full-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .full-cal-day {
+      aspect-ratio: 1 / 1;
+      max-height: 44px;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 44px;
+      border-radius: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      position: relative;
+      background: rgba(255, 255, 255, 0.02);
+      transition: all 0.15s ease;
+    }
+
+    .full-cal-day:hover {
+      background: rgba(255, 255, 255, 0.09);
+    }
+
+    .full-cal-day.other {
+      color: #3e3e46;
+    }
+
+    .full-cal-day.today {
+      background: #ffffff;
+      color: #000000;
+      font-weight: 800;
+    }
+
+    .full-cal-day.selected:not(.today) {
+      border: 1.5px solid #0a84ff;
+      background: rgba(10, 132, 255, 0.14);
+    }
+
+    .full-cal-day.has-event::after {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #0a84ff;
+      margin-top: 2px;
+    }
+
+    .full-cal-day.today.has-event::after {
+      background: #000000;
+    }
+
+    /* --- VISTA D: SPOTIFY & MÚSICA STUDIO EXPANDIDA --- */
+    .spotify-studio-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      max-width: 1440px;
+      width: 100%;
+      margin: 12px auto 0 auto;
+      min-height: 0;
+    }
+
+    @media (min-width: 960px) {
+      .spotify-studio-grid {
+        grid-template-columns: 1fr 1.08fr;
+      }
+    }
+
+    .sp-profile-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(30, 215, 96, 0.14), rgba(13, 15, 20, 0.9));
+      border: 1px solid rgba(30, 215, 96, 0.28);
+    }
+
+    .sp-avatar-lg {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: #1ed760;
+      color: #000000;
+      font-size: 16px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .sp-avatar-lg img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .genre-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+      gap: 8px;
+    }
+
+    .playlist-card-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 13px;
+      min-height: 46px;
+      border-radius: 14px;
+      background: var(--card-bg-elevated);
+      border: 1px solid var(--card-border);
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .playlist-card-item:hover {
+      border-color: rgba(30, 215, 96, 0.45);
+      background: #181c26;
+    }
+
+    .playlist-card-item.active {
+      border-color: #1ed760;
+      background: rgba(30, 215, 96, 0.13);
+    }
+
+    /* ==========================================================================
+       MODAL DE CONEXIÓN HARDWARE ARDUINO MEGA 2560
+       ========================================================================== */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.84);
+      backdrop-filter: blur(12px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 60;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-box {
+      width: 100%;
+      max-width: 650px;
+      max-height: 90vh;
+      overflow-y: auto;
+      background: #0e1015;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 24px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9);
+    }
+
+    .field-input, .field-select, .field-textarea {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 13px;
+      border-radius: 12px;
+      background: #06070a;
+      border: 1px solid var(--card-border);
+      color: #ffffff;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .field-textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    .field-input:focus, .field-select:focus, .field-textarea:focus {
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .console-box {
+      background: #050608;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: #30d158;
+      max-height: 125px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+
+    /* Toast Notification */
+    .toast-wrap {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 90;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast-msg {
+      background: #181a22;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+      animation: fadeUp 0.22s ease;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <!-- ========================================================================
+       MENÚ PRINCIPAL INICIAL (BENTO GRID DASHBOARD)
+       ======================================================================== -->
+  <div class="app-shell">
+    <!-- BARRA SUPERIOR SLIM -->
+    <header class="topbar">
+      <div class="brand-group">
+        <span class="brand-title">
+          <span id="connDot" class="live-dot sim"></span>
+          DESK HUB
+        </span>
+        <span id="topComfortBadge" class="hint-badge" style="color: #30d158; border-color: rgba(48, 209, 88, 0.3);">
+          Entorno Óptimo
+        </span>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="openConnModalBtn" class="pill-btn" title="Configurar Arduino Mega 2560" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            <rect x="9" y="9" width="6" height="6"></rect>
+            <line x1="9" y1="1" x2="9" y2="4"></line>
+            <line x1="15" y1="1" x2="15" y2="4"></line>
+            <line x1="9" y1="20" x2="9" y2="23"></line>
+            <line x1="15" y1="20" x2="15" y2="23"></line>
+          </svg>
+          <span id="connStatusLabel">Modo Simulación</span>
+        </button>
+
+        <button id="wakeLockBtn" class="pill-btn" title="Evitar que la tablet apague la pantalla" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+          </svg>
+          <span id="wakeLockLabel">Pantalla Siempre Encendida</span>
+        </button>
+
+        <button id="fullscreenBtn" class="pill-btn" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          </svg>
+          <span id="fullscreenLabel">Pantalla Completa</span>
+        </button>
+
+        <button id="openBackupModalBtn" class="pill-btn" title="Exportar o reiniciar ajustes" type="button">
+          ⚙ Ajustes
+        </button>
+      </div>
+    </header>
+
+    <!-- BENTO GRID DE 5 TARJETAS -->
+    <main class="bento-grid">
+      <!-- 1. TARJETA RELOJ LOCAL (TOCAR PARA VISTA IPHONE 13 / STANDBY) -->
+      <article id="cardClockTile" class="bento-card tile-clock" role="button" tabindex="0">
+        <div class="tile-header">
+          <span class="tile-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            Reloj Local
+          </span>
+          <span class="hint-badge">Vista iPhone / StandBy ↗</span>
+        </div>
+
+        <div>
+          <div class="home-clock-row tabular-nums">
+            <span id="homeClockMain" class="home-clock-main">11:19</span>
+            <span id="homeClockSec" class="home-clock-sec">:00</span>
+          </div>
+          <div id="homeClockDate" class="home-clock-date">Sábado, 21 de noviembre</div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-muted); padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
+          <span id="homeGreeting">BUENOS DÍAS</span>
+          <span class="mono">OLED Anti-Burn-In</span>
+        </div>
+      </article>
+
+      <!-- 2. TARJETA POMODORO (CONTROLES INLINE + TOCAR PARA ESTUDIO) -->
+      <article id="cardPomoTile" class="bento-card tile-pomo" role="button" tabindex="0">
+        <div class="tile-header">
+          <span class="tile-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="12" cy="13" r="8"></circle>
+              <path d="M12 9v4l2 2"></path>
+              <path d="M9 2h6"></path>
+            </svg>
+            Pomodoro Focus
+          </span>
+          <span class="hint-badge">Opciones y vista grande ↗</span>
+        </div>
+
+        <div class="tile-pomo-body">
+          <div class="pomo-mini-ring-wrap">
+            <svg viewBox="0 0 160 160">
+              <circle cx="80" cy="80" r="68" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="8"></circle>
+              <circle id="homePomoRing" cx="80" cy="80" r="68" fill="none" stroke="var(--accent-focus)" stroke-width="8" stroke-linecap="round" stroke-dasharray="427.25" stroke-dashoffset="0"></circle>
+            </svg>
+            <div class="pomo-mini-center">
+              <div id="homePomoTime" class="pomo-mini-time tabular-nums">25:00</div>
+              <div id="homePomoState" class="pomo-mini-sub">LISTO</div>
+            </div>
+          </div>
+
+          <div class="pomo-tile-right">
+            <span id="homePomoModePill" class="pomo-mode-pill">Enfoque · 25 min</span>
+
+            <div class="pomo-inline-controls">
+              <button id="homePomoStartBtn" class="btn-inline-primary" type="button">
+                <span id="homePomoStartIcon">▶</span>
+                <span id="homePomoStartLabel">Iniciar</span>
+              </button>
+              <button id="homePomoResetBtn" class="btn-inline-sec" type="button" title="Reiniciar bloque">
+                ↺ Reiniciar
+              </button>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--text-secondary);">
+              <span>Completadas hoy: <strong id="homeSessionsCount" style="color: #fff;">0</strong></span>
+              <div id="homeSessionDots" class="session-dots">
+                <span class="s-dot"></span>
+                <span class="s-dot"></span>
+                <span class="s-dot"></span>
+                <span class="s-dot"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- 3. TARJETA TELEMETRÍA ARDUINO MEGA 2560 -->
+      <article id="cardEnvTile" class="bento-card tile-env" role="button" tabindex="0">
+        <div class="tile-header">
+          <span class="tile-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path>
+            </svg>
+            Arduino Mega 2560
+          </span>
+          <button id="envConfigQuickBtn" type="button" class="hint-badge" title="Conectar Arduino OTG / WiFi">
+            OTG / WiFi ⚙
+          </button>
+        </div>
+
+        <div class="env-metrics-list">
+          <div class="env-row">
+            <div class="env-row-top">
+              <span style="color: var(--text-secondary); font-weight: 600;">Temperatura</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="homeTempStatus" class="env-status-chip">Óptimo</span>
+                <span class="tabular-nums font-bold" style="color: var(--sensor-temp); font-size: 14.5px;">
+                  <span id="homeTempVal">22.5</span> °C
+                </span>
+              </div>
+            </div>
+            <div class="env-spark-row">
+              <div class="env-bar-bg">
+                <div id="homeTempBar" class="env-bar-fill" style="width: 52%; background: var(--sensor-temp);"></div>
+              </div>
+              <svg class="sparkline-svg" viewBox="0 0 56 16" preserveAspectRatio="none">
+                <polyline id="sparkTemp" fill="none" stroke="var(--sensor-temp)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="0,8 56,8"></polyline>
+              </svg>
+            </div>
+          </div>
+
+          <div class="env-row">
+            <div class="env-row-top">
+              <span style="color: var(--text-secondary); font-weight: 600;">Humedad</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="homeHumStatus" class="env-status-chip">Ideal</span>
+                <span class="tabular-nums font-bold" style="color: var(--sensor-hum); font-size: 14.5px;">
+                  <span id="homeHumVal">46</span> %
+                </span>
+              </div>
+            </div>
+            <div class="env-spark-row">
+              <div class="env-bar-bg">
+                <div id="homeHumBar" class="env-bar-fill" style="width: 46%; background: var(--sensor-hum);"></div>
+              </div>
+              <svg class="sparkline-svg" viewBox="0 0 56 16" preserveAspectRatio="none">
+                <polyline id="sparkHum" fill="none" stroke="var(--sensor-hum)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="0,8 56,8"></polyline>
+              </svg>
+            </div>
+          </div>
+
+          <div class="env-row">
+            <div class="env-row-top">
+              <span style="color: var(--text-secondary); font-weight: 600;">Luz Ambiental</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="homeLightStatus" class="env-status-chip">Buena</span>
+                <span class="tabular-nums font-bold" style="color: var(--sensor-light); font-size: 14.5px;">
+                  <span id="homeLightVal">340</span> lx
+                </span>
+              </div>
+            </div>
+            <div class="env-spark-row">
+              <div class="env-bar-bg">
+                <div id="homeLightBar" class="env-bar-fill" style="width: 68%; background: var(--sensor-light);"></div>
+              </div>
+              <svg class="sparkline-svg" viewBox="0 0 56 16" preserveAspectRatio="none">
+                <polyline id="sparkLight" fill="none" stroke="var(--sensor-light)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="0,8 56,8"></polyline>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- 4. TARJETA CALENDARIO ICAL & NOTION -->
+      <article id="cardCalTile" class="bento-card tile-cal" role="button" tabindex="0">
+        <div class="tile-header">
+          <span class="tile-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <span id="homeCalMonthTitle">Noviembre</span>
+          </span>
+          <span class="hint-badge">iCal &amp; Notion ↗</span>
+        </div>
+
+        <div class="cal-tile-split">
+          <div id="homeMiniCalGrid" class="mini-cal-grid"></div>
+          <div class="mini-agenda-col">
+            <div class="mini-filter-tabs">
+              <button type="button" class="mini-tab-pill active" data-agenda-filter="all">Todo</button>
+              <button type="button" class="mini-tab-pill" data-agenda-filter="ical">iCal</button>
+              <button type="button" class="mini-tab-pill" data-agenda-filter="notion">Notion</button>
+            </div>
+            <div id="homeMiniEventsList" class="mini-events-list"></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- 5. TARJETA SPOTIFY MUSIC HUB & MI CUENTA DE SPOTIFY -->
+      <article id="cardSpotifyTile" class="bento-card tile-spotify" role="button" tabindex="0">
+        <div class="tile-header" style="margin-bottom: 6px;">
+          <div id="homeSpotifyAccountChip" class="sp-account-chip">
+            <span id="homeSpAvatar" class="sp-avatar-mini">SP</span>
+            <span id="homeSpAccountName">Mi Spotify</span>
+          </div>
+          <button id="expandSpotifyBtn" type="button" class="hint-badge" style="color: #1ed760; border-color: rgba(30,215,96,0.3);">
+            Mi Cuenta / Más ↗
+          </button>
+        </div>
+
+        <div id="homeSpotifyPills" class="spotify-pills"></div>
+
+        <div class="spotify-iframe-wrap" id="homeSpotifyFrameContainer">
+          <iframe
+            id="homeSpotifyIframe"
+            src="https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator&theme=0"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+            title="Spotify Reproductor">
+          </iframe>
+        </div>
+      </article>
+    </main>
+  </div>
+
+  <!-- ========================================================================
+       VISTA A: RELOJ GIGANTE ESTILO IPHONE 13 LOCK SCREEN / STANDBY
+       ======================================================================== -->
+  <section id="viewClock" class="fs-overlay theme-oled" aria-label="Vista Reloj Estilo iPhone 13">
+    <div class="fs-topbar">
+      <button class="back-home-btn" data-close-view="viewClock" type="button">
+        ← Menú Principal
+      </button>
+
+      <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <button class="pill-btn clock-theme-btn active" data-clock-theme="theme-oled" type="button">OLED Puro</button>
+        <button class="pill-btn clock-theme-btn" data-clock-theme="theme-amber" type="button">StandBy Ámbar</button>
+        <button class="pill-btn clock-theme-btn" data-clock-theme="theme-midnight" type="button">Medianoche Azul</button>
+        <button class="pill-btn clock-theme-btn" data-clock-theme="theme-aurora" type="button">Aurora Verde</button>
+      </div>
+    </div>
+
+    <div id="iosClockStage" class="ios-clock-stage">
+      <div id="fsClockDate" class="ios-date-header">Sábado, 21 de noviembre</div>
+      <div id="fsClockDigits" class="ios-mega-digits tabular-nums">11:19</div>
+
+      <div class="ios-widgets-dock">
+        <div id="lockWidgetEnv" class="ios-lock-widget" title="Configurar sensores Arduino">
+          <span>🌡️</span>
+          <span id="lockEnvText" class="tabular-nums">22.5°C · 46%</span>
+        </div>
+
+        <div id="lockWidgetCal" class="ios-lock-widget" title="Abrir Calendario iCal">
+          <span>📅</span>
+          <span id="lockCalText">Sin eventos hoy</span>
+        </div>
+
+        <div id="lockWidgetNotion" class="ios-lock-widget" title="Abrir Tareas Notion">
+          <span>📝</span>
+          <span id="lockNotionText">0 tareas Notion</span>
+        </div>
+
+        <div id="lockWidgetPomo" class="ios-lock-widget" title="Abrir Estudio Pomodoro">
+          <span>⏱️</span>
+          <span id="lockPomoText" class="tabular-nums">Enfoque · 25:00</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VISTA B: POMODORO GRANDE Y OPCIONES
+       ======================================================================== -->
+  <section id="viewPomo" class="fs-overlay" aria-label="Estudio Pomodoro y Opciones">
+    <div class="fs-topbar">
+      <button class="back-home-btn" data-close-view="viewPomo" type="button">
+        ← Menú Principal
+      </button>
+      <span id="pomoHwSyncPill" class="hint-badge" style="color: #30d158; border-color: rgba(48,209,88,0.3);">
+        Sync Arduino: Modo Simulación
+      </span>
+    </div>
+
+    <div class="pomo-studio-grid">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 18px;">
+        <div style="display: flex; gap: 8px; background: var(--card-bg); padding: 6px; border-radius: 16px; border: 1px solid var(--card-border);">
+          <button class="pill-btn fs-pomo-mode active" data-mode="focus" type="button">Enfoque</button>
+          <button class="pill-btn fs-pomo-mode" data-mode="short" type="button">Descanso Corto</button>
+          <button class="pill-btn fs-pomo-mode" data-mode="long" type="button">Descanso Largo</button>
+        </div>
+
+        <div class="pomo-big-ring-box">
+          <svg viewBox="0 0 260 260">
+            <circle cx="130" cy="130" r="114" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="11"></circle>
+            <circle id="fsPomoRing" cx="130" cy="130" r="114" fill="none" stroke="var(--accent-focus)" stroke-width="11" stroke-linecap="round" stroke-dasharray="716.28" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="pomo-big-center">
+            <div id="fsPomoDigits" class="pomo-big-digits tabular-nums">25:00</div>
+            <div id="fsPomoStatus" class="mono" style="font-size: 12px; letter-spacing: 0.1em; color: var(--text-secondary); margin-top: 6px;">
+              LISTO PARA ENFOCAR
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;">
+          <button id="fsPomoStartBtn" class="btn-inline-primary" style="min-height: 50px; padding: 0 28px; font-size: 15px; border-radius: 16px;" type="button">
+            ▶ Iniciar Sesión
+          </button>
+          <button id="fsPomoResetBtn" class="btn-inline-sec" style="min-height: 50px; padding: 0 18px; border-radius: 16px;" type="button">
+            ↺ Reiniciar
+          </button>
+          <button id="fsPomoSkipBtn" class="btn-inline-sec" style="min-height: 50px; padding: 0 18px; border-radius: 16px;" type="button">
+            ⏭ Saltar
+          </button>
+        </div>
+      </div>
+
+      <div class="studio-panel">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <h2 style="font-size: 16px; font-weight: 700;">Configuración de Tiempos y Hardware</h2>
+          <span class="mono" style="font-size: 12px; color: var(--text-secondary);">
+            Hoy: <strong id="fsSessionsCount" style="color: #fff;">0</strong> sesiones
+          </span>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Duración Enfoque</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Bloque principal de concentración (5–90 min)</div>
+          </div>
+          <div class="stepper-controls">
+            <button class="step-btn" data-step-target="focus" data-step-delta="-5" type="button">−</button>
+            <span id="valFocusMin" class="mono font-bold tabular-nums" style="min-width: 54px; text-align: center;">25 min</span>
+            <button class="step-btn" data-step-target="focus" data-step-delta="5" type="button">+</button>
+          </div>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Descanso Corto</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Pausa breve entre bloques (1–30 min)</div>
+          </div>
+          <div class="stepper-controls">
+            <button class="step-btn" data-step-target="short" data-step-delta="-1" type="button">−</button>
+            <span id="valShortMin" class="mono font-bold tabular-nums" style="min-width: 54px; text-align: center;">5 min</span>
+            <button class="step-btn" data-step-target="short" data-step-delta="1" type="button">+</button>
+          </div>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Descanso Largo</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Cada 4 sesiones completadas (5–45 min)</div>
+          </div>
+          <div class="stepper-controls">
+            <button class="step-btn" data-step-target="long" data-step-delta="-5" type="button">−</button>
+            <span id="valLongMin" class="mono font-bold tabular-nums" style="min-width: 54px; text-align: center;">15 min</span>
+            <button class="step-btn" data-step-target="long" data-step-delta="5" type="button">+</button>
+          </div>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Auto-iniciar siguiente ciclo</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Arranca automáticamente el descanso o enfoque</div>
+          </div>
+          <label class="ios-switch">
+            <input id="chkAutoStart" type="checkbox" />
+            <span class="ios-slider"></span>
+          </label>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Spotify Auto-DJ (Enfoque / Descanso)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Cambia de canal automáticamente al cambiar fase</div>
+          </div>
+          <label class="ios-switch">
+            <input id="chkSpotifyAutoDj" type="checkbox" />
+            <span class="ios-slider"></span>
+          </label>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Alerta sonora (Web Audio API)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Campana armónica sin archivos externos</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button id="fsTestSoundBtn" class="pill-btn" style="min-height: 36px; padding: 4px 12px; font-size: 12px;" type="button">
+              Probar
+            </button>
+            <label class="ios-switch">
+              <input id="chkSoundAlert" type="checkbox" checked />
+              <span class="ios-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="stepper-row">
+          <div>
+            <div style="font-size: 13.5px; font-weight: 600;">Enviar estado a Arduino Mega</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Transmite <span class="mono">POMO:FOCUS,1,1500</span> al LCD1602</div>
+          </div>
+          <label class="ios-switch">
+            <input id="chkArduinoSync" type="checkbox" checked />
+            <span class="ios-slider"></span>
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end;">
+          <button id="resetStatsBtn" class="pill-btn" style="color: #ff6961;" type="button">
+            Reiniciar contador de sesiones
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VISTA C: CALENDARIO ICAL (.ICS) & NOTION WORKSPACE
+       ======================================================================== -->
+  <section id="viewCal" class="fs-overlay" aria-label="Calendario iCalendar y Notion">
+    <div class="fs-topbar">
+      <button class="back-home-btn" data-close-view="viewCal" type="button">
+        ← Menú Principal
+      </button>
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span id="icalLastSyncLabel" class="mono" style="font-size: 11.5px; color: var(--text-secondary);">
+          iCal &amp; Notion listos
+        </span>
+        <button id="icalSyncNowBtn" class="pill-btn" type="button">
+          ↻ Sincronizar iCal
+        </button>
+        <button id="notionSyncNowBtn" class="pill-btn" style="border-color: rgba(255,255,255,0.28);" type="button">
+          ↻ Sincronizar Notion
+        </button>
+      </div>
+    </div>
+
+    <div class="cal-studio-grid">
+      <!-- Columna Izquierda: Calendario Mensual + Conexiones iCal y Notion -->
+      <div class="studio-panel" style="justify-content: space-between; overflow-y: auto;">
+        <div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <h2 id="fsCalMonthTitle" style="font-size: 18px; font-weight: 800;">Noviembre 2026</h2>
+            <div style="display: flex; gap: 6px;">
+              <button id="fsCalPrevBtn" class="btn-inline-sec" style="min-height: 38px;" type="button">‹</button>
+              <button id="fsCalTodayBtn" class="btn-inline-sec" style="min-height: 38px;" type="button">Hoy</button>
+              <button id="fsCalNextBtn" class="btn-inline-sec" style="min-height: 38px;" type="button">›</button>
+            </div>
+          </div>
+          <div id="fsCalGrid" class="full-cal-grid"></div>
+        </div>
+
+        <!-- Selector de fuente: iCalendar vs Notion API / Pegado -->
+        <div style="border-top: 1px solid var(--card-border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="pill-btn active" id="tabSrcNotionBtn" style="flex: 1;">📝 Conectar Notion</button>
+            <button type="button" class="pill-btn" id="tabSrcIcalBtn" style="flex: 1;">📅 Conectar iCalendar (.ics)</button>
+          </div>
+
+          <!-- Panel Notion -->
+          <div id="panelSrcNotion" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 11.5px; color: var(--text-secondary);">
+              <strong>Opción 1 (API Directa Notion):</strong> Pega tu Token de Integración y el ID de tu base de datos de tareas.
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px;">
+              <input id="notionTokenInput" type="password" class="field-input mono" placeholder="secret_... o ntn_..." />
+              <input id="notionDbIdInput" type="text" class="field-input mono" placeholder="Database ID (32 chars)" />
+              <button id="saveNotionApiBtn" type="button" class="btn-inline-primary">Sincronizar</button>
+            </div>
+
+            <div style="font-size: 11.5px; color: var(--text-secondary); margin-top: 2px;">
+              <strong>Opción 2 (Pegar desde Notion):</strong> Copia cualquier lista o checklist en la app de Notion y pégala aquí:
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <textarea id="notionPasteBox" class="field-textarea" placeholder="- Terminar driver LCD1602&#10;- Probar OTG en tablet&#10;- Subir README a GitHub"></textarea>
+              <button id="importNotionPasteBtn" type="button" class="btn-inline-sec" style="align-self: stretch;">Importar</button>
+            </div>
+          </div>
+
+          <!-- Panel iCalendar -->
+          <div id="panelSrcIcal" class="hidden" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px;">
+              <input id="icalUrlInput" type="text" class="field-input mono" placeholder="Pega URL webcal:// o https://.../calendar.ics" />
+              <button id="saveIcalUrlBtn" class="btn-inline-primary" type="button" style="flex-shrink: 0;">Vincular</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label class="pill-btn" style="cursor: pointer;">
+                📂 Importar .ics local
+                <input id="icalFileInput" type="file" accept=".ics,text/calendar" style="display: none;" />
+              </label>
+              <button id="loadDemoIcsBtn" class="pill-btn" type="button">✨ Cargar ejemplo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Columna Derecha: Agenda del Día + Tareas Notion -->
+      <div class="studio-panel" style="justify-content: space-between; overflow-y: auto;">
+        <div style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+            <h3 id="fsSelectedDateTitle" style="font-size: 16px; font-weight: 700; text-transform: capitalize;">
+              Agenda y Notion
+            </h3>
+            <span id="fsDayEventsBadge" class="hint-badge">0 elementos</span>
+          </div>
+
+          <div id="fsDayEventsList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;"></div>
+        </div>
+
+        <!-- Añadir tarea Notion o Evento rápido -->
+        <div style="border-top: 1px solid var(--card-border); padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <form id="quickNotionForm" style="display: grid; grid-template-columns: 1fr 115px auto; gap: 8px;">
+            <input id="quickNotionTitle" type="text" class="field-input" placeholder="Nueva tarea en Notion (ej. Revisar punteros C)..." maxlength="80" required />
+            <select id="quickNotionTag" class="field-select">
+              <option value="Robótica">Robótica</option>
+              <option value="Estudio">Estudio</option>
+              <option value="Personal">Personal</option>
+            </select>
+            <button type="submit" class="btn-inline-primary">+ Notion</button>
+          </form>
+
+          <form id="quickEventForm" style="display: grid; grid-template-columns: 105px 1fr auto; gap: 8px;">
+            <input id="quickEventTime" type="time" class="field-input tabular-nums" value="17:00" required />
+            <input id="quickEventTitle" type="text" class="field-input" placeholder="Nuevo evento con hora en este día..." maxlength="70" required />
+            <button type="submit" class="btn-inline-sec">+ Evento</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VISTA D: SPOTIFY MUSIC HUB & MI CUENTA DE SPOTIFY (EXPANDIDA)
+       ======================================================================== -->
+  <section id="viewSpotify" class="fs-overlay" aria-label="Spotify Music Hub y Mi Cuenta de Spotify">
+    <div class="fs-topbar">
+      <button class="back-home-btn" data-close-view="viewSpotify" type="button">
+        ← Menú Principal
+      </button>
+      <span class="mono" style="font-size: 12px; color: var(--accent-spotify);">SPOTIFY MUSIC HUB · MI CUENTA &amp; AUTO-DJ</span>
+    </div>
+
+    <div class="spotify-studio-grid">
+      <!-- Izquierda: Mi Cuenta de Spotify + Reproductor Activo Grande -->
+      <div class="studio-panel" style="justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="sp-profile-banner">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+              <div id="fsSpAvatar" class="sp-avatar-lg">SP</div>
+              <div style="min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span id="fsSpDisplayName" style="font-size: 16px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    Mi Cuenta de Spotify
+                  </span>
+                  <span id="fsSpTierBadge" class="hint-badge" style="background: rgba(30,215,96,0.2); color: #1ed760; border-color: rgba(30,215,96,0.4);">
+                    Premium
+                  </span>
+                </div>
+                <div id="fsSpSubInfo" style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                  Inicia sesión en open.spotify.com en la tablet para escuchar canciones completas
+                </div>
+              </div>
+            </div>
+            <button id="toggleSpAccountEditBtn" class="btn-inline-sec" type="button" style="flex-shrink: 0;">
+              Editar / Conectar
+            </button>
+          </div>
+
+          <div id="spAccountConfigBox" class="hidden" style="background: var(--card-bg-elevated); border: 1px solid var(--card-border); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: grid; grid-template-columns: 1fr 125px auto; gap: 8px;">
+              <input id="spProfileNameInput" type="text" class="field-input" placeholder="Tu nombre o @usuario de Spotify" maxlength="32" />
+              <select id="spProfileTierSelect" class="field-select">
+                <option value="Premium">Premium</option>
+                <option value="Free">Free</option>
+              </select>
+              <button id="saveSpProfileBtn" class="btn-inline-primary" style="background: #1ed760; color: #000;" type="button">
+                Guardar
+              </button>
+            </div>
+
+            <!-- Auto-DJ Pomodoro <-> Spotify -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Playlist para Enfoque:</div>
+                <select id="spAutoFocusSelect" class="field-select"></select>
+              </div>
+              <div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">Playlist para Descanso:</div>
+                <select id="spAutoBreakSelect" class="field-select"></select>
+              </div>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.07); padding-top: 9px; display: flex; flex-direction: column; gap: 7px;">
+              <div style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary);">
+                Conexión OAuth 2.0 PKCE (Importa tu foto y playlists reales de tu cuenta)
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <input id="spClientIdInput" type="text" class="field-input mono" style="flex: 1; min-width: 180px;" placeholder="Spotify Developer Client ID" />
+                <button id="spOauthConnectBtn" class="btn-inline-primary" style="background: #1ed760; color: #000;" type="button">
+                  Conectar Spotify
+                </button>
+                <button id="spOauthLogoutBtn" class="btn-inline-sec hidden" type="button" style="color: #ff6961;">
+                  Desvincular
+                </button>
+              </div>
+              <div style="background: rgba(255,255,255,0.05); border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="font-size: 11px; color: var(--text-secondary);">
+                  Copia esta dirección en developer.spotify.com → tu app → Settings → Redirect URIs → Save:
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <input id="spRedirectUriBox" type="text" readonly class="field-input mono" style="flex: 1; font-size: 11px;" />
+                  <button id="spCopyRedirectBtn" class="btn-inline-sec" type="button">Copiar</button>
+                </div>
+                <div id="spRedirectStatus" style="font-size: 11.5px; line-height: 1.4;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex: 1; min-height: 330px; border-radius: 18px; overflow: hidden; background: #121216;">
+          <iframe
+            id="fsSpotifyIframe"
+            src="https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator&theme=0"
+            width="100%"
+            height="100%"
+            style="min-height: 330px; border: none;"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+            title="Spotify Studio Reproductor">
+          </iframe>
+        </div>
+      </div>
+
+      <!-- Derecha: 12 Canales Curados con Buscador + Mis Playlists Guardadas -->
+      <div class="studio-panel" style="overflow-y: auto; gap: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+          <h3 style="font-size: 15px; font-weight: 800;">12 Canales y Ambientes</h3>
+          <input id="spGenreSearchInput" type="text" class="field-input" style="max-width: 210px; min-height: 36px;" placeholder="Filtrar ambiente..." />
+        </div>
+
+        <div id="fsSpotifyGenresGrid" class="genre-grid"></div>
+
+        <div style="border-top: 1px solid var(--card-border); padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="font-size: 15px; font-weight: 800;">Mis Playlists y Canciones Guardadas</h3>
+          <div style="display: grid; grid-template-columns: 1fr 120px; gap: 8px;">
+            <input id="customSpotifyLabelInput" type="text" class="field-input" placeholder="Nombre (ej. Mi Mix Robótica)" maxlength="40" />
+            <select id="customSpotifyTagSelect" class="field-select">
+              <option value="Focus">Focus</option>
+              <option value="Chill">Chill</option>
+              <option value="Energía">Energía</option>
+              <option value="Favorita">Favorita</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input id="customSpotifyUrlInput" type="text" class="field-input mono" placeholder="Pega URL o URI: https://open.spotify.com/playlist/..." />
+            <button id="loadCustomSpotifyBtn" class="btn-inline-primary" style="background: #1ed760; color: #000; flex-shrink: 0;" type="button">
+              + Guardar
+            </button>
+          </div>
+
+          <div id="fsSpotifySavedList" style="display: flex; flex-direction: column; gap: 7px; margin-top: 4px;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       MODAL 1: CONEXIÓN HARDWARE ARDUINO MEGA 2560 (USB OTG ANDROID / WIFI)
+       ======================================================================== -->
+  <div id="connModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="connModalTitle">
+    <div class="modal-box">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <h2 id="connModalTitle" style="font-size: 17px; font-weight: 800;">Hardware — Arduino Mega 2560</h2>
+          <p style="font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;">
+            Enlace bidireccional por cable USB OTG en tablet Android o WiFi ESP-01
+          </p>
+        </div>
+        <button id="closeConnModalBtn" class="btn-inline-sec" type="button">✕</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #06070a; padding: 5px; border-radius: 14px; border: 1px solid var(--card-border);">
+        <button class="pill-btn conn-tab-btn active" data-conn-tab="serial" type="button">1. USB OTG</button>
+        <button class="pill-btn conn-tab-btn" data-conn-tab="wifi" type="button">2. WiFi Local</button>
+        <button class="pill-btn conn-tab-btn" data-conn-tab="sim" type="button">3. Simulación</button>
+      </div>
+
+      <!-- Tab 1: USB OTG (Nativo APK + Web Serial) -->
+      <div id="paneSerial" class="conn-pane" style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.5;">
+          Conecta el cable USB de tu <strong>Arduino Mega 2560</strong> al adaptador OTG de la tablet. Compatible con ATmega16U2 y chip CH340 a <strong>115200 bps</strong>.
+        </p>
+        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 8px;">
+          <select id="serialBaudSelect" class="field-select mono">
+            <option value="115200" selected>115200 bps (Firmware C)</option>
+            <option value="9600">9600 bps</option>
+          </select>
+          <button id="btnConnectSerial" class="btn-inline-primary" type="button">Conectar USB OTG</button>
+          <button id="btnStopSerial" class="btn-inline-sec" type="button">Cerrar</button>
+        </div>
+      </div>
+
+      <!-- Tab 2: WiFi Local -->
+      <div id="paneWifi" class="conn-pane hidden" style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.5;">
+          Conecta tu <strong>Arduino Mega 2560</strong> mediante un <strong>ESP-01</strong> en <span class="mono">Serial1</span> (WebSocket o HTTP JSON).
+        </p>
+        <div style="display: grid; grid-template-columns: 140px 1fr 105px; gap: 8px;">
+          <select id="wifiModeSelect" class="field-select">
+            <option value="ws">WebSocket</option>
+            <option value="http">HTTP JSON</option>
+          </select>
+          <input id="wifiUrlInput" type="text" class="field-input mono" value="ws://192.168.1.50:81" placeholder="ws://192.168.1.50:81" />
+          <select id="wifiPollSelect" class="field-select mono">
+            <option value="1000">1.0 s</option>
+            <option value="2000" selected>2.0 s</option>
+            <option value="5000">5.0 s</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btnConnectWifi" class="btn-inline-primary" type="button">Conectar WiFi</button>
+          <button id="btnStopWifi" class="btn-inline-sec" type="button">Detener</button>
+        </div>
+      </div>
+
+      <!-- Tab 3: Simulación -->
+      <div id="paneSim" class="conn-pane hidden" style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+          Genera curvas suaves y realistas de temperatura (~22.5°C), humedad (~46%) y luz ambiental (~340 lx) cuando no tienes el cable OTG enchufado.
+        </p>
+        <button id="btnStartSim" class="btn-inline-primary" type="button">Activar Modo Simulación</button>
+      </div>
+
+      <!-- Consola de Tramas -->
+      <div>
+        <div style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">
+          CONSOLA DE TRAMAS SERIAL / OTG
+        </div>
+        <div id="serialConsoleBox" class="console-box">
+          [DESK HUB] Listo. Esperando cable USB OTG o simulación.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: BACKUP / EXPORTAR / REINICIAR AJUSTES
+       ======================================================================== -->
+  <div id="backupModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="backupModalTitle">
+    <div class="modal-box" style="max-width: 480px;">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h2 id="backupModalTitle" style="font-size: 17px; font-weight: 800;">Ajustes y Copia de Seguridad</h2>
+        <button id="closeBackupModalBtn" class="btn-inline-sec" type="button">✕</button>
+      </div>
+      <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+        Todos tus ajustes, sesiones Pomodoro, eventos iCal, tareas de Notion y playlists de Spotify se guardan localmente en tu tablet.
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button id="exportSettingsBtn" class="btn-inline-primary" type="button">
+          ⬇ Exportar copia de seguridad (.json)
+        </button>
+        <button id="resetAllSettingsBtn" class="btn-inline-sec" style="color: #ff6961; border-color: rgba(255,105,97,0.35);" type="button">
+          ↺ Restaurar valores de fábrica
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastWrap" class="toast-wrap"></div>
+
+  <script>
+    /**
+     * ==========================================================================
+     * DESK HUB TABLET — CONTROLADOR INTEGRAL (RELOJ STANDBY, POMODORO, ICAL + NOTION, SPOTIFY, OTG)
+     * ==========================================================================
+     */
+    (function () {
+      "use strict";
+
+      /* ------------------------------------------------------------------------
+         1. PERSISTENCIA Y UTILIDADES
+         ------------------------------------------------------------------------ */
+      const KEYS = {
+        POMO_CFG: "deskhub_tab_pomo_cfg",
+        POMO_STATS: "deskhub_tab_pomo_stats",
+        EVENTS: "deskhub_tab_events",
+        NOTION_TASKS: "deskhub_tab_notion_tasks",
+        NOTION_CFG: "deskhub_tab_notion_cfg",
+        ICAL_URL: "deskhub_tab_ical_url",
+        ICAL_LAST: "deskhub_tab_ical_last",
+        SPOTIFY_ACTIVE: "deskhub_tab_sp_active",
+        SPOTIFY_CUSTOM: "deskhub_tab_sp_custom",
+        SPOTIFY_PROFILE: "deskhub_tab_sp_profile",
+        SPOTIFY_TOKEN: "deskhub_tab_sp_token",
+        CLOCK_THEME: "deskhub_tab_clock_theme",
+        HW_CFG: "deskhub_tab_hw_cfg"
+      };
+
+      function loadJSON(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch (e) {
+          return fallback;
+        }
+      }
+
+      function saveJSON(key, val) {
+        try {
+          localStorage.setItem(key, JSON.stringify(val));
+        } catch (e) {}
+      }
+
+      function showToast(text) {
+        const wrap = document.getElementById("toastWrap");
+        if (!wrap) return;
+        const msg = document.createElement("div");
+        msg.className = "toast-msg";
+        msg.textContent = text;
+        wrap.appendChild(msg);
+        setTimeout(() => {
+          msg.style.opacity = "0";
+          msg.style.transition = "opacity 0.25s ease";
+          setTimeout(() => msg.remove(), 260);
+        }, 2800);
+      }
+
+      function logFrame(line) {
+        const box = document.getElementById("serialConsoleBox");
+        if (!box) return;
+        const t = new Date().toLocaleTimeString("es-ES", { hour12: false });
+        const row = document.createElement("div");
+        row.textContent = `[${t}] ${line}`;
+        box.appendChild(row);
+        while (box.children.length > 35) box.removeChild(box.firstChild);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function toISODateLocal(dateObj) {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+        const d = String(dateObj.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      }
+
+      /* ------------------------------------------------------------------------
+         2. NAVEGACIÓN ENTRE VISTAS
+         ------------------------------------------------------------------------ */
+      let burnInInterval = null;
+
+      function startAntiBurnInShift() {
+        stopAntiBurnInShift();
+        const stage = document.getElementById("iosClockStage");
+        if (!stage) return;
+        burnInInterval = setInterval(() => {
+          const dx = Math.round((Math.random() - 0.5) * 14);
+          const dy = Math.round((Math.random() - 0.5) * 14);
+          stage.style.transform = `translate(${dx}px, ${dy}px)`;
+        }, 45000);
+      }
+
+      function stopAntiBurnInShift() {
+        if (burnInInterval) {
+          clearInterval(burnInInterval);
+          burnInInterval = null;
+        }
+        const stage = document.getElementById("iosClockStage");
+        if (stage) stage.style.transform = "translate(0px, 0px)";
+      }
+
+      function openFullScreenView(viewId) {
+        document.querySelectorAll(".fs-overlay").forEach((el) => el.classList.remove("open"));
+        const target = document.getElementById(viewId);
+        if (target) {
+          target.classList.add("open");
+          if (viewId === "viewClock") startAntiBurnInShift();
+          else stopAntiBurnInShift();
+        }
+      }
+
+      function closeAllFullScreenViews() {
+        document.querySelectorAll(".fs-overlay").forEach((el) => el.classList.remove("open"));
+        stopAntiBurnInShift();
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeAllFullScreenViews();
+          document.getElementById("connModal").classList.remove("open");
+          document.getElementById("backupModal").classList.remove("open");
+        }
+      });
+
+      /* ------------------------------------------------------------------------
+         3. RELOJ LOCAL & VISTA IPHONE 13 LOCK SCREEN / STANDBY
+         ------------------------------------------------------------------------ */
+      function updateAllClocks() {
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        const ss = String(now.getSeconds()).padStart(2, "0");
+
+        const timeStr = `${hh}:${mm}`;
+        document.getElementById("homeClockMain").textContent = timeStr;
+        document.getElementById("homeClockSec").textContent = `:${ss}`;
+        document.getElementById("fsClockDigits").textContent = timeStr;
+
+        const dateStr = now.toLocaleDateString("es-ES", {
+          weekday: "long",
+          day: "numeric",
+          month: "long"
+        });
+        document.getElementById("homeClockDate").textContent = dateStr;
+        document.getElementById("fsClockDate").textContent = dateStr;
+
+        const h = now.getHours();
+        let greet = "BUENAS NOCHES";
+        if (h >= 6 && h < 13) greet = "BUENOS DÍAS";
+        else if (h >= 13 && h < 20) greet = "BUENAS TARDES";
+        document.getElementById("homeGreeting").textContent = greet;
+      }
+
+      function applyClockTheme(themeClass) {
+        const view = document.getElementById("viewClock");
+        view.classList.remove("theme-oled", "theme-amber", "theme-midnight", "theme-aurora");
+        view.classList.add(themeClass);
+        saveJSON(KEYS.CLOCK_THEME, themeClass);
+
+        document.querySelectorAll(".clock-theme-btn").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.clockTheme === themeClass);
+        });
+      }
+
+      /* ------------------------------------------------------------------------
+         4. POMODORO STUDIO + WEB AUDIO + AUTO-DJ SPOTIFY
+         ------------------------------------------------------------------------ */
+      const HOME_RING_CIRC = 2 * Math.PI * 68;
+      const FS_RING_CIRC = 2 * Math.PI * 114;
+
+      const pomoCfg = loadJSON(KEYS.POMO_CFG, {
+        focus: 25,
+        short: 5,
+        long: 15,
+        autoStart: false,
+        spotifyAutoDj: false,
+        soundAlert: true,
+        arduinoSync: true
+      });
+
+      const todayStr = toISODateLocal(new Date());
+      let pomoStats = loadJSON(KEYS.POMO_STATS, { date: todayStr, completed: 0 });
+      if (pomoStats.date !== todayStr) {
+        pomoStats = { date: todayStr, completed: 0 };
+        saveJSON(KEYS.POMO_STATS, pomoStats);
+      }
+
+      const pomo = {
+        mode: "focus",
+        totalSec: pomoCfg.focus * 60,
+        remSec: pomoCfg.focus * 60,
+        endTimestamp: null,
+        running: false,
+        timerId: null
+      };
+
+      let sharedAudioCtx = null;
+
+      function unlockAudioContext() {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
+          if (sharedAudioCtx.state === "suspended") sharedAudioCtx.resume();
+        } catch (e) {}
+      }
+
+      document.addEventListener("pointerdown", unlockAudioContext, { once: true });
+
+      function playWebAudioChime(forcePlay) {
+        if (!forcePlay && !pomoCfg.soundAlert) return;
+        try {
+          unlockAudioContext();
+          if (!sharedAudioCtx) return;
+          const now = sharedAudioCtx.currentTime;
+          const freqs = [523.25, 659.25, 783.99, 1046.5];
+          freqs.forEach((f, idx) => {
+            const osc = sharedAudioCtx.createOscillator();
+            const gain = sharedAudioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(f, now + idx * 0.13);
+            gain.gain.setValueAtTime(0.001, now + idx * 0.13);
+            gain.gain.exponentialRampToValueAtTime(0.16, now + idx * 0.13 + 0.04);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.13 + 0.65);
+            osc.connect(gain);
+            gain.connect(sharedAudioCtx.destination);
+            osc.start(now + idx * 0.13);
+            osc.stop(now + idx * 0.13 + 0.68);
+          });
+        } catch (e) {}
+      }
+
+      function getModeMeta(mode) {
+        if (mode === "short") return { name: "Descanso Corto", color: "var(--accent-short)", min: pomoCfg.short };
+        if (mode === "long") return { name: "Descanso Largo", color: "var(--accent-long)", min: pomoCfg.long };
+        return { name: "Enfoque", color: "var(--accent-focus)", min: pomoCfg.focus };
+      }
+
+      function renderPomodoroAll() {
+        const mins = Math.floor(pomo.remSec / 60);
+        const secs = pomo.remSec % 60;
+        const formatted = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        const meta = getModeMeta(pomo.mode);
+        const ratio = pomo.totalSec > 0 ? pomo.remSec / pomo.totalSec : 0;
+
+        document.getElementById("homePomoTime").textContent = formatted;
+        document.getElementById("homePomoState").textContent = pomo.running ? "ACTIVO" : "LISTO";
+        const homeRing = document.getElementById("homePomoRing");
+        homeRing.style.strokeDashoffset = String(HOME_RING_CIRC * (1 - ratio));
+        homeRing.style.stroke = meta.color;
+
+        const pill = document.getElementById("homePomoModePill");
+        pill.textContent = `${meta.name} · ${meta.min} min`;
+        pill.style.color = meta.color;
+        pill.style.borderColor = meta.color;
+        pill.style.background = "rgba(255,255,255,0.05)";
+
+        document.getElementById("homePomoStartIcon").textContent = pomo.running ? "⏸" : "▶";
+        document.getElementById("homePomoStartLabel").textContent = pomo.running ? "Pausar" : "Iniciar";
+        document.getElementById("homeSessionsCount").textContent = String(pomoStats.completed);
+
+        const dots = document.querySelectorAll("#homeSessionDots .s-dot");
+        const mod4 = pomoStats.completed % 4;
+        dots.forEach((d, idx) => {
+          const on = (pomoStats.completed > 0 && mod4 === 0) ? true : idx < mod4;
+          d.classList.toggle("filled", on);
+        });
+
+        document.getElementById("fsPomoDigits").textContent = formatted;
+        document.getElementById("fsPomoStatus").textContent = pomo.running
+          ? `${meta.name.toUpperCase()} EN CURSO`
+          : `${meta.name.toUpperCase()} PAUSADO`;
+        const fsRing = document.getElementById("fsPomoRing");
+        fsRing.style.strokeDashoffset = String(FS_RING_CIRC * (1 - ratio));
+        fsRing.style.stroke = meta.color;
+
+        document.getElementById("fsPomoStartBtn").textContent = pomo.running ? "⏸ Pausar Sesión" : "▶ Iniciar Sesión";
+        document.getElementById("fsSessionsCount").textContent = String(pomoStats.completed);
+
+        document.querySelectorAll(".fs-pomo-mode").forEach((b) => {
+          b.classList.toggle("active", b.dataset.mode === pomo.mode);
+        });
+
+        document.getElementById("lockPomoText").textContent = `${meta.name} · ${formatted}`;
+      }
+
+      function syncPomodoroDeltaTick() {
+        if (!pomo.running || !pomo.endTimestamp) return;
+        const nextRem = Math.max(0, Math.ceil((pomo.endTimestamp - Date.now()) / 1000));
+        if (nextRem !== pomo.remSec) {
+          pomo.remSec = nextRem;
+          renderPomodoroAll();
+        }
+        if (pomo.remSec <= 0) {
+          finishPomodoroBlock();
+        }
+      }
+
+      function triggerSpotifyAutoDj(mode) {
+        if (!pomoCfg.spotifyAutoDj) return;
+        const targetUrl = (mode === "focus") ? spProfile.autoFocusUrl : spProfile.autoBreakUrl;
+        if (targetUrl) {
+          const found = [...OFFICIAL_SPOTIFY_GENRES, ...customPlaylists].find((x) => x.embedUrl === targetUrl);
+          setActiveSpotifyEmbed(targetUrl, found ? found.name : "Auto-DJ Spotify");
+        }
+      }
+
+      function setPomodoroMode(newMode) {
+        pausePomodoro();
+        pomo.mode = newMode;
+        const meta = getModeMeta(newMode);
+        pomo.totalSec = meta.min * 60;
+        pomo.remSec = meta.min * 60;
+        renderPomodoroAll();
+        transmitPomodoroToHardware();
+        triggerSpotifyAutoDj(newMode);
+      }
+
+      function startPomodoro() {
+        if (pomo.running) return;
+        unlockAudioContext();
+        pomo.running = true;
+        pomo.endTimestamp = Date.now() + pomo.remSec * 1000;
+        renderPomodoroAll();
+        transmitPomodoroToHardware();
+        triggerSpotifyAutoDj(pomo.mode);
+
+        pomo.timerId = setInterval(syncPomodoroDeltaTick, 250);
+      }
+
+      function pausePomodoro() {
+        if (pomo.running && pomo.endTimestamp) {
+          pomo.remSec = Math.max(0, Math.ceil((pomo.endTimestamp - Date.now()) / 1000));
+        }
+        pomo.running = false;
+        pomo.endTimestamp = null;
+        if (pomo.timerId) {
+          clearInterval(pomo.timerId);
+          pomo.timerId = null;
+        }
+        renderPomodoroAll();
+        transmitPomodoroToHardware();
+      }
+
+      function resetPomodoro() {
+        pausePomodoro();
+        pomo.remSec = pomo.totalSec;
+        renderPomodoroAll();
+        transmitPomodoroToHardware();
+      }
+
+      function finishPomodoroBlock() {
+        pausePomodoro();
+        playWebAudioChime(false);
+
+        let nextMode = "focus";
+        if (pomo.mode === "focus") {
+          pomoStats.completed += 1;
+          saveJSON(KEYS.POMO_STATS, pomoStats);
+          nextMode = (pomoStats.completed % 4 === 0) ? "long" : "short";
+          showToast("¡Bloque de enfoque completado!");
+        } else {
+          showToast("Descanso terminado. ¡Volvemos al enfoque!");
+          nextMode = "focus";
+        }
+
+        setPomodoroMode(nextMode);
+        if (pomoCfg.autoStart) {
+          startPomodoro();
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         5. CALENDARIO ICAL (.ICS) + INTEGRACIÓN NOTION
+         ------------------------------------------------------------------------ */
+      const MONTHS_ES = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+      ];
+      const WEEKDAYS_ES = ["L", "M", "X", "J", "V", "S", "D"];
+
+      let calCursor = new Date();
+      let selectedISO = toISODateLocal(new Date());
+      let homeAgendaFilter = "all";
+
+      let calendarEvents = loadJSON(KEYS.EVENTS, [
+        {
+          id: "init-1",
+          date: toISODateLocal(new Date()),
+          time: "12:30",
+          endTime: "13:30",
+          title: "Montar DHT11 + LDR en Arduino Mega 2560",
+          location: "Escritorio",
+          source: "local"
+        },
+        {
+          id: "init-2",
+          date: toISODateLocal(new Date()),
+          time: "18:00",
+          endTime: "19:00",
+          title: "Revisar arquitectura C puro (.h / .c)",
+          location: "Portfolio GitHub",
+          source: "local"
+        }
+      ]);
+
+      let notionTasks = loadJSON(KEYS.NOTION_TASKS, [
+        {
+          id: "nt-1",
+          date: toISODateLocal(new Date()),
+          title: "Probar enlace USB OTG con Arduino Mega",
+          tag: "Robótica",
+          done: false
+        },
+        {
+          id: "nt-2",
+          date: toISODateLocal(new Date()),
+          title: "Documentar diagramas en README.md",
+          tag: "Estudio",
+          done: false
+        }
+      ]);
+
+      let notionCfg = loadJSON(KEYS.NOTION_CFG, {
+        token: "",
+        databaseId: ""
+      });
+
+      function parseICalDateToken(rawVal, paramStr) {
+        const clean = rawVal.trim();
+        const isDateOnly = (paramStr && paramStr.includes("VALUE=DATE") && !paramStr.includes("DATE-TIME")) || /^\d{8}$/.test(clean);
+        const match = clean.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+        if (!match) return null;
+
+        const year = Number(match[1]);
+        const month = Number(match[2]) - 1;
+        const day = Number(match[3]);
+
+        if (isDateOnly || !match[4]) {
+          return {
+            dateISO: `${match[1]}-${match[2]}-${match[3]}`,
+            timeStr: "Todo el día"
+          };
+        }
+
+        const hour = Number(match[4]);
+        const min = Number(match[5]);
+        const sec = Number(match[6] || 0);
+        const isUTC = Boolean(match[7]);
+
+        const dt = isUTC
+          ? new Date(Date.UTC(year, month, day, hour, min, sec))
+          : new Date(year, month, day, hour, min, sec);
+
+        return {
+          dateISO: toISODateLocal(dt),
+          timeStr: `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`
+        };
+      }
+
+      function parseICSContent(icsText) {
+        const unfolded = icsText.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
+        const lines = unfolded.split(/\r?\n/);
+
+        const parsed = [];
+        let inEvent = false;
+        let current = null;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line === "BEGIN:VEVENT") {
+            inEvent = true;
+            current = { title: "Evento sin título", location: "", date: "", time: "09:00", endTime: "" };
+            continue;
+          }
+          if (line === "END:VEVENT" && inEvent && current) {
+            if (current.date) {
+              parsed.push({
+                id: `ics-${Date.now()}-${parsed.length}`,
+                date: current.date,
+                time: current.time,
+                endTime: current.endTime,
+                title: current.title,
+                location: current.location,
+                source: "ical"
+              });
+            }
+            inEvent = false;
+            current = null;
+            continue;
+          }
+          if (!inEvent || !current) continue;
+
+          const colonIdx = line.indexOf(":");
+          if (colonIdx === -1) continue;
+
+          const propPart = line.slice(0, colonIdx).toUpperCase();
+          const valPart = line.slice(colonIdx + 1)
+            .replace(/\\n/gi, " ")
+            .replace(/\\,/g, ",")
+            .replace(/\\;/g, ";")
+            .replace(/\\\\/g, "\\");
+
+          const semiIdx = propPart.indexOf(";");
+          const propName = semiIdx === -1 ? propPart : propPart.slice(0, semiIdx);
+          const propParams = semiIdx === -1 ? "" : propPart.slice(semiIdx + 1);
+
+          if (propName === "SUMMARY") {
+            current.title = valPart || "Evento iCalendar";
+          } else if (propName === "DTSTART") {
+            const dtInfo = parseICalDateToken(valPart, propParams);
+            if (dtInfo) {
+              current.date = dtInfo.dateISO;
+              current.time = dtInfo.timeStr;
+            }
+          } else if (propName === "DTEND") {
+            const endInfo = parseICalDateToken(valPart, propParams);
+            if (endInfo && endInfo.timeStr !== "Todo el día") {
+              current.endTime = endInfo.timeStr;
+            }
+          } else if (propName === "LOCATION") {
+            current.location = valPart;
+          }
+        }
+        return parsed;
+      }
+
+      async function syncRemoteICalURL(rawUrl) {
+        const trimmed = (rawUrl || "").trim();
+        if (!trimmed) {
+          showToast("Introduce una URL .ics o webcal:// válida");
+          return;
+        }
+
+        const httpsUrl = trimmed.replace(/^webcal:\/\//i, "https://");
+        saveJSON(KEYS.ICAL_URL, trimmed);
+        showToast("Sincronizando calendario iCalendar...");
+
+        const candidates = [
+          httpsUrl,
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(httpsUrl)}`,
+          `https://corsproxy.io/?${encodeURIComponent(httpsUrl)}`
+        ];
+
+        let icsPayload = "";
+        for (let i = 0; i < candidates.length; i++) {
+          try {
+            const res = await fetch(candidates[i], { cache: "no-store" });
+            if (res.ok) {
+              const txt = await res.text();
+              if (txt.includes("BEGIN:VCALENDAR")) {
+                icsPayload = txt;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!icsPayload) {
+          showToast("No se pudo descargar el .ics. Verifica que el enlace sea público.");
+          return;
+        }
+
+        const importedEvents = parseICSContent(icsPayload);
+        const localOnly = calendarEvents.filter((ev) => ev.source === "local");
+        calendarEvents = [...localOnly, ...importedEvents];
+        saveJSON(KEYS.EVENTS, calendarEvents);
+
+        const stamp = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+        saveJSON(KEYS.ICAL_LAST, `iCal ${stamp} (${importedEvents.length} eventos)`);
+        renderCalendarsAndAgenda();
+        showToast(`Sincronizados ${importedEvents.length} eventos desde iCalendar`);
+      }
+
+      async function syncNotionDatabase() {
+        const token = (notionCfg.token || "").trim();
+        const dbId = (notionCfg.databaseId || "").trim().replace(/-/g, "");
+        if (!token || !dbId) {
+          showToast("Introduce tu Token de Notion y el Database ID");
+          return;
+        }
+
+        showToast("Consultando base de datos de Notion...");
+        const endpoint = `https://api.notion.com/v1/databases/${dbId}/query`;
+        const headers = {
+          "Authorization": `Bearer ${token}`,
+          "Notion-Version": "2022-06-28",
+          "Content-Type": "application/json"
+        };
+
+        let data = null;
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ page_size: 25 })
+          });
+          if (res.ok) data = await res.json();
+        } catch (e) {}
+
+        if (!data) {
+          try {
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(endpoint)}`;
+            const res2 = await fetch(proxyUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ page_size: 25 })
+            });
+            if (res2.ok) data = await res2.json();
+          } catch (e) {}
+        }
+
+        if (!data || !Array.isArray(data.results)) {
+          showToast("No se pudo leer la base de datos de Notion. Verifica permisos de la integración.");
+          return;
+        }
+
+        const imported = [];
+        data.results.forEach((page) => {
+          const props = page.properties || {};
+          let titleText = "Tarea Notion";
+          let isDone = false;
+          let dateISO = toISODateLocal(new Date());
+          let tagText = "Notion";
+
+          Object.keys(props).forEach((k) => {
+            const p = props[k];
+            if (p.type === "title" && Array.isArray(p.title) && p.title.length > 0) {
+              titleText = p.title.map((t) => t.plain_text).join("");
+            } else if (p.type === "checkbox") {
+              isDone = Boolean(p.checkbox);
+            } else if (p.type === "status" && p.status) {
+              const st = (p.status.name || "").toLowerCase();
+              if (st.includes("done") || st.includes("complet") || st.includes("hecho")) isDone = true;
+            } else if (p.type === "date" && p.date && p.date.start) {
+              dateISO = p.date.start.slice(0, 10);
+            } else if (p.type === "select" && p.select && p.select.name) {
+              tagText = p.select.name;
+            }
+          });
+
+          imported.push({
+            id: `notion-api-${page.id}`,
+            date: dateISO,
+            title: titleText,
+            tag: tagText,
+            done: isDone
+          });
+        });
+
+        const manualTasks = notionTasks.filter((t) => !t.id.startsWith("notion-api-"));
+        notionTasks = [...manualTasks, ...imported];
+        saveJSON(KEYS.NOTION_TASKS, notionTasks);
+        renderCalendarsAndAgenda();
+        showToast(`Sincronizadas ${imported.length} tareas desde Notion`);
+      }
+
+      function pushNextAgendaItemToArduino() {
+        const todayISO = toISODateLocal(new Date());
+        const nextEv = calendarEvents
+          .filter((e) => e.date >= todayISO)
+          .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))[0];
+        const nextTask = notionTasks.find((t) => !t.done);
+
+        let lcdStr = "Sin pendientes";
+        if (nextEv) {
+          lcdStr = `${nextEv.time} ${nextEv.title}`.slice(0, 16);
+        } else if (nextTask) {
+          lcdStr = `N:${nextTask.title}`.slice(0, 16);
+        }
+        sendRawToHardware(`EVENT:${lcdStr}`);
+      }
+
+      function renderCalendarsAndAgenda() {
+        const year = calCursor.getFullYear();
+        const month = calCursor.getMonth();
+        const todayISO = toISODateLocal(new Date());
+
+        document.getElementById("homeCalMonthTitle").textContent = `${MONTHS_ES[month]} ${year}`;
+        document.getElementById("fsCalMonthTitle").textContent = `${MONTHS_ES[month]} ${year}`;
+
+        const lastSyncText = loadJSON(KEYS.ICAL_LAST, "iCal & Notion listos");
+        document.getElementById("icalLastSyncLabel").textContent = lastSyncText;
+
+        const eventDatesSet = new Set([
+          ...calendarEvents.map((e) => e.date),
+          ...notionTasks.filter((t) => !t.done).map((t) => t.date)
+        ]);
+
+        ["homeMiniCalGrid", "fsCalGrid"].forEach((gridId) => {
+          const grid = document.getElementById(gridId);
+          const isMini = gridId === "homeMiniCalGrid";
+          grid.innerHTML = "";
+
+          WEEKDAYS_ES.forEach((wd) => {
+            const h = document.createElement("div");
+            h.className = "mini-cal-wd";
+            h.style.fontSize = isMini ? "10px" : "12px";
+            h.textContent = wd;
+            grid.appendChild(h);
+          });
+
+          const firstDay = new Date(year, month, 1);
+          const startOffset = (firstDay.getDay() + 6) % 7;
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const prevDays = new Date(year, month, 0).getDate();
+
+          for (let i = startOffset - 1; i >= 0; i--) {
+            const cell = document.createElement("div");
+            cell.className = isMini ? "mini-cal-day other" : "full-cal-day other";
+            cell.textContent = prevDays - i;
+            grid.appendChild(cell);
+          }
+
+          for (let d = 1; d <= daysInMonth; d++) {
+            const cellDate = new Date(year, month, d);
+            const cellISO = toISODateLocal(cellDate);
+            const cell = document.createElement("div");
+            cell.className = isMini ? "mini-cal-day" : "full-cal-day";
+            cell.textContent = d;
+
+            if (cellISO === todayISO) cell.classList.add("today");
+            if (!isMini && cellISO === selectedISO) cell.classList.add("selected");
+            if (eventDatesSet.has(cellISO)) cell.classList.add("has-event");
+
+            if (!isMini) {
+              cell.addEventListener("click", () => {
+                selectedISO = cellISO;
+                renderCalendarsAndAgenda();
+              });
+            }
+            grid.appendChild(cell);
+          }
+        });
+
+        // Lista compacta en tarjeta Home (Todo / iCal / Notion)
+        const miniList = document.getElementById("homeMiniEventsList");
+        miniList.innerHTML = "";
+
+        const upcomingEvents = calendarEvents
+          .filter((e) => e.date >= todayISO)
+          .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+
+        const pendingNotion = notionTasks.filter((t) => !t.done);
+
+        if (homeAgendaFilter !== "notion") {
+          upcomingEvents.slice(0, homeAgendaFilter === "ical" ? 5 : 2).forEach((ev) => {
+            const chip = document.createElement("div");
+            chip.className = "mini-event-chip";
+            const dayTag = ev.date === todayISO ? "Hoy" : ev.date.slice(5).replace("-", "/");
+            chip.innerHTML = `
+              <div class="mini-event-time">${dayTag} · ${ev.time}</div>
+              <div class="mini-event-title"></div>
+            `;
+            chip.querySelector(".mini-event-title").textContent = ev.title;
+            miniList.appendChild(chip);
+          });
+        }
+
+        if (homeAgendaFilter !== "ical") {
+          pendingNotion.slice(0, homeAgendaFilter === "notion" ? 5 : 3).forEach((task) => {
+            const chip = document.createElement("div");
+            chip.className = "mini-event-chip notion-item";
+            chip.innerHTML = `
+              <span class="notion-mini-check ${task.done ? "done" : ""}">${task.done ? "✓" : ""}</span>
+              <div style="min-width: 0; flex: 1;">
+                <div class="mini-event-time" style="color: #d1d5db;">Notion · ${task.tag}</div>
+                <div class="mini-event-title ${task.done ? "done-text" : ""}"></div>
+              </div>
+            `;
+            chip.querySelector(".mini-event-title").textContent = task.title;
+            chip.querySelector(".notion-mini-check").addEventListener("click", (e) => {
+              e.stopPropagation();
+              task.done = !task.done;
+              saveJSON(KEYS.NOTION_TASKS, notionTasks);
+              renderCalendarsAndAgenda();
+              pushNextAgendaItemToArduino();
+            });
+            miniList.appendChild(chip);
+          });
+        }
+
+        if (miniList.children.length === 0) {
+          miniList.innerHTML = `<div style="font-size:11.5px; color:var(--text-muted); padding:8px 0;">Sin pendientes</div>`;
+        }
+
+        // Widgets en StandBy / Lock Screen
+        const todayEvents = calendarEvents
+          .filter((e) => e.date === todayISO)
+          .sort((a, b) => a.time.localeCompare(b.time));
+        document.getElementById("lockCalText").textContent = todayEvents.length > 0
+          ? `${todayEvents[0].time} · ${todayEvents[0].title}`
+          : "Sin eventos hoy";
+
+        document.getElementById("lockNotionText").textContent = pendingNotion.length > 0
+          ? `${pendingNotion.length} Notion: ${pendingNotion[0].title}`
+          : "0 tareas Notion";
+
+        // Vista expandida C: Agenda y Notion del día seleccionado
+        const selDateObj = new Date(`${selectedISO}T12:00:00`);
+        document.getElementById("fsSelectedDateTitle").textContent = selDateObj.toLocaleDateString("es-ES", {
+          weekday: "long",
+          day: "numeric",
+          month: "long"
+        });
+
+        const dayEvents = calendarEvents
+          .filter((e) => e.date === selectedISO)
+          .sort((a, b) => a.time.localeCompare(b.time));
+        const dayNotion = notionTasks.filter((t) => t.date === selectedISO || (!t.done && selectedISO === todayISO));
+
+        document.getElementById("fsDayEventsBadge").textContent = `${dayEvents.length} eventos · ${dayNotion.length} Notion`;
+        const fsList = document.getElementById("fsDayEventsList");
+        fsList.innerHTML = "";
+
+        if (dayEvents.length === 0 && dayNotion.length === 0) {
+          fsList.innerHTML = `
+            <div style="padding: 28px 14px; text-align: center; color: var(--text-muted); font-size: 13px; background: var(--card-bg-elevated); border-radius: 16px;">
+              No hay eventos ni tareas de Notion para esta fecha.
+            </div>
+          `;
+        } else {
+          dayNotion.forEach((task) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-radius:16px; background:var(--card-bg-elevated); border-left:4px solid #ffffff;";
+            row.innerHTML = `
+              <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+                <span class="notion-mini-check ${task.done ? "done" : ""}" style="width:20px; height:20px;">${task.done ? "✓" : ""}</span>
+                <div style="min-width:0;">
+                  <div class="mono" style="font-size:11px; color:#d1d5db; font-weight:700;">NOTION · ${task.tag}</div>
+                  <div class="${task.done ? "done-text" : ""}" style="font-size:14px; font-weight:700; color:#fff; margin-top:2px;"></div>
+                </div>
+              </div>
+              <button type="button" class="btn-inline-sec" style="min-height:38px; color:#ff6961;" title="Eliminar">✕</button>
+            `;
+            row.querySelector("div > div > div:nth-child(2)").textContent = task.title;
+            row.querySelector(".notion-mini-check").addEventListener("click", () => {
+              task.done = !task.done;
+              saveJSON(KEYS.NOTION_TASKS, notionTasks);
+              renderCalendarsAndAgenda();
+              pushNextAgendaItemToArduino();
+            });
+            row.querySelector("button").addEventListener("click", () => {
+              notionTasks = notionTasks.filter((item) => item.id !== task.id);
+              saveJSON(KEYS.NOTION_TASKS, notionTasks);
+              renderCalendarsAndAgenda();
+              pushNextAgendaItemToArduino();
+            });
+            fsList.appendChild(row);
+          });
+
+          dayEvents.forEach((ev) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-radius:16px; background:var(--card-bg-elevated); border-left:4px solid #0a84ff;";
+            const rangeText = ev.endTime ? `${ev.time} – ${ev.endTime}` : ev.time;
+            row.innerHTML = `
+              <div style="min-width:0;">
+                <div class="mono" style="font-size:11.5px; color:#60a5fa; font-weight:700;">${rangeText} ${ev.source === "ical" ? "· iCal" : ""}</div>
+                <div style="font-size:14px; font-weight:700; color:#fff; margin-top:2px;"></div>
+                ${ev.location ? `<div style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">📍 ${ev.location}</div>` : ""}
+              </div>
+              <button type="button" class="btn-inline-sec" style="min-height:38px; color:#ff6961;" title="Eliminar evento">✕</button>
+            `;
+            row.querySelector("div > div:nth-child(2)").textContent = ev.title;
+            row.querySelector("button").addEventListener("click", () => {
+              calendarEvents = calendarEvents.filter((item) => item.id !== ev.id);
+              saveJSON(KEYS.EVENTS, calendarEvents);
+              renderCalendarsAndAgenda();
+              pushNextAgendaItemToArduino();
+            });
+            fsList.appendChild(row);
+          });
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         6. SPOTIFY MUSIC HUB (12 CANALES + AUTO-DJ + MI CUENTA + PKCE)
+         ------------------------------------------------------------------------ */
+      const OFFICIAL_SPOTIFY_GENRES = [
+        { id: "lofi", name: "Lo-Fi Beats", subtitle: "Beats suaves para estudiar y programar", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DWWQRwui0ExPn?utm_source=generator&theme=0" },
+        { id: "deepfocus", name: "Deep Focus", subtitle: "Concentración profunda sin distracciones", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DWZeKCadgRdKQ?utm_source=generator&theme=0" },
+        { id: "piano", name: "Piano Calma", subtitle: "Peaceful Piano instrumental", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX4sWSpwq3LiO?utm_source=generator&theme=0" },
+        { id: "synthwave", name: "Synthwave Code", subtitle: "Electrónica retro y programación nocturna", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DXdLEN7aqioXM?utm_source=generator&theme=0" },
+        { id: "jazz", name: "Jazz Café", subtitle: "Jazz in the Background", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DWV7EzJMK2FUI?utm_source=generator&theme=0" },
+        { id: "ambient", name: "Ambient Lluvia", subtitle: "Ambient Chill relajante", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX3Ogo9pFvBkY?utm_source=generator&theme=0" },
+        { id: "binaural", name: "Binaural 40Hz", subtitle: "Ondas gamma para enfoque técnico", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX7EF8wVxBVhG?utm_source=generator&theme=0" },
+        { id: "classical", name: "Clásica Estudio", subtitle: "Obras instrumentales clásicas", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX8NTLI2TtZa6?utm_source=generator&theme=0" },
+        { id: "chillhop", name: "Chillhop Beats", subtitle: "Ritmos cálidos de escritorio", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX0SM0LYsmbMT?utm_source=generator&theme=0" },
+        { id: "acoustic", name: "Acústico Mañana", subtitle: "Guitarra acústica tranquila", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX4E3UdUs7fUx?utm_source=generator&theme=0" },
+        { id: "latenight", name: "Late Night Code", subtitle: "Electrónica minimalista nocturna", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DX6GJXiuZRisr?utm_source=generator&theme=0" },
+        { id: "hits", name: "Energía / Hits", subtitle: "Éxitos globales para activar el ritmo", embedUrl: "https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0" }
+      ];
+
+      let spProfile = loadJSON(KEYS.SPOTIFY_PROFILE, {
+        displayName: "Mi Spotify",
+        tier: "Premium",
+        avatarUrl: "",
+        clientId: "",
+        connectedOAuth: false,
+        autoFocusUrl: OFFICIAL_SPOTIFY_GENRES[1].embedUrl,
+        autoBreakUrl: OFFICIAL_SPOTIFY_GENRES[2].embedUrl
+      });
+
+      let customPlaylists = loadJSON(KEYS.SPOTIFY_CUSTOM, []);
+      let activeSpotifyUrl = loadJSON(KEYS.SPOTIFY_ACTIVE, OFFICIAL_SPOTIFY_GENRES[0].embedUrl);
+
+      function parseSpotifyLinkToEmbed(rawInput) {
+        const str = (rawInput || "").trim();
+        if (!str) return null;
+
+        const uriMatch = str.match(/^spotify:(playlist|album|track|artist|show|episode):([a-zA-Z0-9]+)$/i);
+        if (uriMatch) {
+          return `https://open.spotify.com/embed/${uriMatch[1].toLowerCase()}/${uriMatch[2]}?utm_source=generator&theme=0`;
+        }
+
+        const urlMatch = str.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(?:embed\/)?(playlist|album|track|artist|show|episode)\/([a-zA-Z0-9]+)/i);
+        if (urlMatch) {
+          return `https://open.spotify.com/embed/${urlMatch[1].toLowerCase()}/${urlMatch[2]}?utm_source=generator&theme=0`;
+        }
+
+        return null;
+      }
+
+      function populateAutoDjSelects() {
+        const allOptions = [
+          ...OFFICIAL_SPOTIFY_GENRES.map((g) => ({ name: g.name, url: g.embedUrl })),
+          ...customPlaylists.map((c) => ({ name: `★ ${c.name}`, url: c.embedUrl }))
+        ];
+        ["spAutoFocusSelect", "spAutoBreakSelect"].forEach((selId) => {
+          const sel = document.getElementById(selId);
+          if (!sel) return;
+          sel.innerHTML = "";
+          allOptions.forEach((opt) => {
+            const o = document.createElement("option");
+            o.value = opt.url;
+            o.textContent = opt.name;
+            sel.appendChild(o);
+          });
+        });
+        document.getElementById("spAutoFocusSelect").value = spProfile.autoFocusUrl || OFFICIAL_SPOTIFY_GENRES[1].embedUrl;
+        document.getElementById("spAutoBreakSelect").value = spProfile.autoBreakUrl || OFFICIAL_SPOTIFY_GENRES[2].embedUrl;
+      }
+
+      function renderSpotifyProfile() {
+        const name = spProfile.displayName || "Mi Spotify";
+        const initials = name.trim().slice(0, 2).toUpperCase() || "SP";
+
+        document.getElementById("homeSpAccountName").textContent = name;
+        document.getElementById("fsSpDisplayName").textContent = name;
+        document.getElementById("fsSpTierBadge").textContent = spProfile.tier || "Premium";
+
+        const homeAv = document.getElementById("homeSpAvatar");
+        const fsAv = document.getElementById("fsSpAvatar");
+        if (spProfile.avatarUrl) {
+          homeAv.innerHTML = `<img src="${spProfile.avatarUrl}" alt="Avatar Spotify" />`;
+          fsAv.innerHTML = `<img src="${spProfile.avatarUrl}" alt="Avatar Spotify" />`;
+        } else {
+          homeAv.textContent = initials;
+          fsAv.textContent = initials;
+        }
+
+        document.getElementById("fsSpSubInfo").textContent = spProfile.connectedOAuth
+          ? "Cuenta vinculada vía Spotify Web API · Playlists sincronizadas"
+          : "Inicia sesión en open.spotify.com en la tablet para escuchar canciones completas";
+
+        document.getElementById("spOauthLogoutBtn").classList.toggle("hidden", !spProfile.connectedOAuth);
+        populateAutoDjSelects();
+      }
+
+      function setActiveSpotifyEmbed(embedUrl, labelForLcd) {
+        activeSpotifyUrl = embedUrl;
+        saveJSON(KEYS.SPOTIFY_ACTIVE, embedUrl);
+
+        const homeFrame = document.getElementById("homeSpotifyIframe");
+        const fsFrame = document.getElementById("fsSpotifyIframe");
+        if (homeFrame && homeFrame.src !== embedUrl) homeFrame.src = embedUrl;
+        if (fsFrame && fsFrame.src !== embedUrl) fsFrame.src = embedUrl;
+
+        if (labelForLcd) {
+          sendRawToHardware(`SONG:${labelForLcd.slice(0, 16)}`);
+        }
+
+        renderSpotifyUI();
+      }
+
+      function renderSpotifyUI() {
+        renderSpotifyProfile();
+
+        const pillsBox = document.getElementById("homeSpotifyPills");
+        pillsBox.innerHTML = "";
+
+        const quickItems = [
+          ...OFFICIAL_SPOTIFY_GENRES,
+          ...customPlaylists.map((c) => ({ id: c.id, name: `★ ${c.name}`, embedUrl: c.embedUrl }))
+        ];
+
+        quickItems.forEach((item) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = `sp-pill ${item.embedUrl === activeSpotifyUrl ? "active" : ""}`;
+          btn.textContent = item.name;
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setActiveSpotifyEmbed(item.embedUrl, item.name.replace(/^★\s*/, ""));
+          });
+          pillsBox.appendChild(btn);
+        });
+
+        const searchQ = (document.getElementById("spGenreSearchInput").value || "").trim().toLowerCase();
+        const genresGrid = document.getElementById("fsSpotifyGenresGrid");
+        genresGrid.innerHTML = "";
+        OFFICIAL_SPOTIFY_GENRES
+          .filter((g) => !searchQ || g.name.toLowerCase().includes(searchQ) || g.subtitle.toLowerCase().includes(searchQ))
+          .forEach((g) => {
+            const card = document.createElement("div");
+            card.className = `playlist-card-item ${g.embedUrl === activeSpotifyUrl ? "active" : ""}`;
+            card.innerHTML = `
+              <div style="min-width: 0;">
+                <div style="font-size: 13px; font-weight: 700; color: #fff;">${g.name}</div>
+                <div style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${g.subtitle}</div>
+              </div>
+              <span class="mono" style="font-size: 11px; color: #1ed760; font-weight: 700;">
+                ${g.embedUrl === activeSpotifyUrl ? "●" : "▶"}
+              </span>
+            `;
+            card.addEventListener("click", () => {
+              setActiveSpotifyEmbed(g.embedUrl, g.name);
+              showToast(`Reproduciendo: ${g.name}`);
+            });
+            genresGrid.appendChild(card);
+          });
+
+        const savedBox = document.getElementById("fsSpotifySavedList");
+        savedBox.innerHTML = "";
+        if (customPlaylists.length === 0) {
+          savedBox.innerHTML = `
+            <div style="padding: 14px; text-align: center; font-size: 12px; color: var(--text-muted); background: var(--card-bg-elevated); border-radius: 12px;">
+              Aún no has guardado playlists o canciones personales. Pega un enlace arriba para añadirlo.
+            </div>
+          `;
+        } else {
+          customPlaylists.forEach((item) => {
+            const row = document.createElement("div");
+            row.className = `playlist-card-item ${item.embedUrl === activeSpotifyUrl ? "active" : ""}`;
+            row.innerHTML = `
+              <div style="min-width: 0; flex: 1;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: #fff;"></span>
+                  <span class="hint-badge" style="font-size: 10px; padding: 2px 7px;">${item.tag || "Focus"}</span>
+                </div>
+                <div class="mono" style="font-size: 10.5px; color: var(--text-muted); margin-top: 2px;">${item.subtitle || "Spotify Guardado"}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="mono" style="font-size: 11px; color: #1ed760; font-weight: 700;">
+                  ${item.embedUrl === activeSpotifyUrl ? "SONANDO" : "▶"}
+                </span>
+                <button type="button" class="btn-inline-sec" style="min-height: 36px; min-width: 36px; color: #ff6961;" title="Eliminar">✕</button>
+              </div>
+            `;
+            row.querySelector("span").textContent = item.name;
+            row.addEventListener("click", (e) => {
+              if (e.target.closest("button")) return;
+              setActiveSpotifyEmbed(item.embedUrl, item.name);
+              showToast(`Reproduciendo: ${item.name}`);
+            });
+            row.querySelector("button").addEventListener("click", (e) => {
+              e.stopPropagation();
+              customPlaylists = customPlaylists.filter((p) => p.id !== item.id);
+              saveJSON(KEYS.SPOTIFY_CUSTOM, customPlaylists);
+              renderSpotifyUI();
+              showToast("Eliminado de Mis Playlists");
+            });
+            savedBox.appendChild(row);
+          });
+        }
+      }
+
+      /* OAuth 2.0 PKCE opcional */
+      function generateRandomString(len) {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        const arr = new Uint8Array(len);
+        window.crypto.getRandomValues(arr);
+        return Array.from(arr, (x) => chars[x % chars.length]).join("");
+      }
+
+      async function sha256Base64Url(plain) {
+        const data = new TextEncoder().encode(plain);
+        const digest = await window.crypto.subtle.digest("SHA-256", data);
+        return btoa(String.fromCharCode(...new Uint8Array(digest)))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+      }
+
+      const DEFAULT_SPOTIFY_CLIENT_ID = "3c7e167b92c0436bb5cc2bae4b8d7b68";
+
+      function getSpotifyRedirectUri() {
+        const loc = window.location;
+        if (loc.protocol !== "https:" && loc.protocol !== "http:") return "";
+        return loc.origin + loc.pathname;
+      }
+
+      function getSpotifyRedirectProblem() {
+        const loc = window.location;
+        if (loc.protocol === "file:") {
+          return "Estás abriendo el archivo directamente (file://). Spotify no lo acepta: sube el archivo a una web https (p. ej. GitHub Pages) y ábrelo desde ahí.";
+        }
+        const isLoopback = loc.hostname === "127.0.0.1" || loc.hostname === "[::1]";
+        if (loc.protocol === "http:" && !isLoopback) {
+          return "Spotify no acepta http:// con una IP o nombre de red. Usa una dirección https:// (GitHub Pages) o, en el PC, http://127.0.0.1:8080/...";
+        }
+        if (!(window.crypto && window.crypto.subtle)) {
+          return "Este navegador no permite el cifrado necesario. Abre la página desde una dirección https://.";
+        }
+        return "";
+      }
+
+      function renderSpotifyRedirectHelp() {
+        const box = document.getElementById("spRedirectUriBox");
+        const status = document.getElementById("spRedirectStatus");
+        if (!box || !status) return;
+        const uri = getSpotifyRedirectUri();
+        const problem = getSpotifyRedirectProblem();
+        box.value = uri || "(no disponible: abre la página desde una web)";
+        if (problem) {
+          status.style.color = "#ff6961";
+          status.textContent = "⚠ " + problem;
+        } else {
+          status.style.color = "#1ed760";
+          status.textContent = "✓ Esta dirección es válida. Pégala tal cual en Spotify (idéntica, letra por letra) y pulsa Conectar.";
+        }
+      }
+
+      async function initiateSpotifyPKCE(clientId) {
+        const cleanId = (clientId || "").trim();
+        if (!cleanId) {
+          showToast("Introduce tu Spotify Developer Client ID");
+          return;
+        }
+        spProfile.clientId = cleanId;
+        saveJSON(KEYS.SPOTIFY_PROFILE, spProfile);
+
+        const problem = getSpotifyRedirectProblem();
+        if (problem) {
+          renderSpotifyRedirectHelp();
+          showToast("No se puede conectar: mira el aviso rojo debajo del botón");
+          return;
+        }
+
+        const verifier = generateRandomString(64);
+        const challenge = await sha256Base64Url(verifier);
+        sessionStorage.setItem("deskhub_sp_verifier", verifier);
+
+        const redirectUri = getSpotifyRedirectUri();
+        const params = new URLSearchParams({
+          client_id: cleanId,
+          response_type: "code",
+          redirect_uri: redirectUri,
+          code_challenge_method: "S256",
+          code_challenge: challenge,
+          scope: "user-read-private playlist-read-private playlist-read-collaborative"
+        });
+        window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
+      }
+
+      async function handleSpotifyOAuthCallback() {
+        const params = new URLSearchParams(window.location.search);
+        const spErr = params.get("error");
+        if (spErr) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          showToast("Spotify dijo: " + spErr);
+          return;
+        }
+        const code = params.get("code");
+        const verifier = sessionStorage.getItem("deskhub_sp_verifier");
+        if (!code || !verifier || !spProfile.clientId) return;
+
+        window.history.replaceState({}, document.title, window.location.pathname);
+        sessionStorage.removeItem("deskhub_sp_verifier");
+
+        try {
+          const redirectUri = getSpotifyRedirectUri();
+          const body = new URLSearchParams({
+            client_id: spProfile.clientId,
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: redirectUri,
+            code_verifier: verifier
+          });
+
+          const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body
+          });
+          if (!tokenRes.ok) {
+            let detail = "";
+            try { const j = await tokenRes.json(); detail = j.error_description || j.error || ""; } catch (e) {}
+            throw new Error("Token exchange failed " + detail);
+          }
+          const tokenData = await tokenRes.json();
+          const accessToken = tokenData.access_token;
+          saveJSON(KEYS.SPOTIFY_TOKEN, accessToken);
+
+          const meRes = await fetch("https://api.spotify.com/v1/me", {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            spProfile.displayName = me.display_name || me.id || "Mi Spotify";
+            spProfile.tier = me.product === "premium" ? "Premium" : "Free";
+            spProfile.avatarUrl = (me.images && me.images[0] && me.images[0].url) ? me.images[0].url : "";
+            spProfile.connectedOAuth = true;
+            saveJSON(KEYS.SPOTIFY_PROFILE, spProfile);
+          }
+
+          const plRes = await fetch("https://api.spotify.com/v1/me/playlists?limit=15", {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (plRes.ok) {
+            const plData = await plRes.json();
+            const fetched = (plData.items || []).map((pl) => ({
+              id: `sp-api-${pl.id}`,
+              name: pl.name,
+              tag: "Mi Cuenta",
+              subtitle: `${pl.tracks ? pl.tracks.total : 0} canciones`,
+              embedUrl: `https://open.spotify.com/embed/playlist/${pl.id}?utm_source=generator&theme=0`
+            }));
+            const existingUrls = new Set(customPlaylists.map((p) => p.embedUrl));
+            fetched.forEach((f) => {
+              if (!existingUrls.has(f.embedUrl)) customPlaylists.push(f);
+            });
+            saveJSON(KEYS.SPOTIFY_CUSTOM, customPlaylists);
+          }
+
+          renderSpotifyUI();
+          showToast(`Conectado como ${spProfile.displayName}`);
+        } catch (err) {
+          showToast("No se pudo vincular Spotify: " + (err && err.message ? err.message : "error"));
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         7. TELEMETRÍA HARDWARE ARDUINO MEGA 2560 + PUENTE NATIVO ANDROID OTG
+         ------------------------------------------------------------------------ */
+      const hw = {
+        mode: "sim",
+        temp: 22.5,
+        hum: 46,
+        light: 340,
+        histTemp: [22.1, 22.3, 22.4, 22.2, 22.5, 22.6, 22.4, 22.5],
+        histHum: [45, 46, 47, 46, 45, 46, 46, 46],
+        histLight: [310, 325, 330, 345, 340, 335, 342, 340],
+        simTimer: null,
+        wifiTimer: null,
+        ws: null,
+        serialPort: null,
+        serialWriter: null,
+        serialReading: false
+      };
+
+      function buildSparklinePoints(arr, minVal, maxVal) {
+        if (!arr || arr.length < 2) return "0,8 56,8";
+        const span = Math.max(1, maxVal - minVal);
+        return arr.map((val, idx) => {
+          const x = (idx / (arr.length - 1)) * 56;
+          const norm = Math.min(1, Math.max(0, (val - minVal) / span));
+          const y = 14 - norm * 12;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(" ");
+      }
+
+      function updateEnvironmentUI(temp, hum, light) {
+        if (typeof temp === "number" && !Number.isNaN(temp) && temp < 200) {
+          hw.temp = Math.round(temp * 10) / 10;
+          hw.histTemp.push(hw.temp);
+          if (hw.histTemp.length > 18) hw.histTemp.shift();
+        }
+        if (typeof hum === "number" && !Number.isNaN(hum) && hum <= 100) {
+          hw.hum = Math.round(Math.min(100, Math.max(0, hum)));
+          hw.histHum.push(hw.hum);
+          if (hw.histHum.length > 18) hw.histHum.shift();
+        }
+        if (typeof light === "number" && !Number.isNaN(light)) {
+          hw.light = Math.round(Math.max(0, light));
+          hw.histLight.push(hw.light);
+          if (hw.histLight.length > 18) hw.histLight.shift();
+        }
+
+        document.getElementById("homeTempVal").textContent = hw.temp.toFixed(1);
+        const tempPct = Math.min(100, Math.max(0, ((hw.temp - 10) / 30) * 100));
+        document.getElementById("homeTempBar").style.width = `${tempPct}%`;
+        document.getElementById("sparkTemp").setAttribute("points", buildSparklinePoints(hw.histTemp, 15, 35));
+        document.getElementById("homeTempStatus").textContent =
+          hw.temp < 19 ? "Fresco" : hw.temp > 26.5 ? "Cálido" : "Óptimo";
+
+        document.getElementById("homeHumVal").textContent = String(hw.hum);
+        document.getElementById("homeHumBar").style.width = `${hw.hum}%`;
+        document.getElementById("sparkHum").setAttribute("points", buildSparklinePoints(hw.histHum, 20, 85));
+        document.getElementById("homeHumStatus").textContent =
+          hw.hum < 35 ? "Seco" : hw.hum > 65 ? "Húmedo" : "Ideal";
+
+        document.getElementById("homeLightVal").textContent = String(hw.light);
+        const lightPct = hw.light <= 100 ? hw.light : Math.min(100, (hw.light / 600) * 100);
+        document.getElementById("homeLightBar").style.width = `${lightPct}%`;
+        document.getElementById("sparkLight").setAttribute("points", buildSparklinePoints(hw.histLight, 0, hw.light <= 100 ? 100 : 600));
+        document.getElementById("homeLightStatus").textContent =
+          lightPct < 30 ? "Tenue" : lightPct > 85 ? "Intensa" : "Buena";
+
+        document.getElementById("lockEnvText").textContent = `${hw.temp.toFixed(1)}°C · ${hw.hum}%`;
+
+        const badge = document.getElementById("topComfortBadge");
+        if (hw.temp >= 19 && hw.temp <= 26.5 && hw.hum >= 35 && hw.hum <= 65 && lightPct >= 30) {
+          badge.textContent = "Entorno Óptimo";
+          badge.style.color = "#30d158";
+          badge.style.borderColor = "rgba(48, 209, 88, 0.3)";
+        } else if (lightPct < 30) {
+          badge.textContent = "Luz Tenue — Enciende Flexo";
+          badge.style.color = "#ffd60a";
+          badge.style.borderColor = "rgba(255, 214, 10, 0.3)";
+        } else {
+          badge.textContent = "Revisar Ambiente";
+          badge.style.color = "#ff6961";
+          badge.style.borderColor = "rgba(255, 105, 97, 0.3)";
+        }
+      }
+
+      function setHardwareStatus(mode, label, dotState) {
+        hw.mode = mode;
+        document.getElementById("connStatusLabel").textContent = label;
+        document.getElementById("pomoHwSyncPill").textContent = `Sync Arduino: ${label}`;
+        const dot = document.getElementById("connDot");
+        dot.className = "live-dot";
+        if (dotState === "sim") dot.classList.add("sim");
+        else if (dotState === "offline") dot.classList.add("offline");
+      }
+
+      function stopHardwareStreams() {
+        if (hw.simTimer) { clearInterval(hw.simTimer); hw.simTimer = null; }
+        if (hw.wifiTimer) { clearInterval(hw.wifiTimer); hw.wifiTimer = null; }
+        if (hw.ws) { try { hw.ws.close(); } catch (e) {} hw.ws = null; }
+        hw.serialReading = false;
+        if (hw.serialWriter) { try { hw.serialWriter.releaseLock(); } catch (e) {} hw.serialWriter = null; }
+        if (hw.serialPort) { try { hw.serialPort.close(); } catch (e) {} hw.serialPort = null; }
+        if (window.AndroidUSB && typeof window.AndroidUSB.disconnect === "function") {
+          try { window.AndroidUSB.disconnect(); } catch (e) {}
+        }
+      }
+
+      function startSimHardware() {
+        stopHardwareStreams();
+        setHardwareStatus("sim", "Modo Simulación", "sim");
+        logFrame("Modo Simulación activado (~22.5°C, 46% Hum, 340 lx).");
+        updateEnvironmentUI(22.5, 46, 340);
+
+        hw.simTimer = setInterval(() => {
+          const nt = Math.min(34, Math.max(16, hw.temp + (Math.random() - 0.5) * 0.3));
+          const nh = Math.min(82, Math.max(28, hw.hum + (Math.random() - 0.5) * 1.4));
+          const nl = Math.min(580, Math.max(90, hw.light + (Math.random() - 0.5) * 14));
+          updateEnvironmentUI(nt, nh, nl);
+        }, 2500);
+      }
+
+      function parseArduinoLine(raw) {
+        const str = String(raw || "").trim();
+        if (!str) return;
+        if (str.startsWith("{")) {
+          try {
+            const obj = JSON.parse(str);
+            updateEnvironmentUI(
+              Number(obj.t ?? obj.temp ?? obj.temperature),
+              Number(obj.h ?? obj.hum ?? obj.humidity),
+              Number(obj.l ?? obj.lux ?? obj.light)
+            );
+          } catch (e) {}
+          return;
+        }
+        const mT = str.match(/TEMP:(-?\d+(?:\.\d+)?)/i);
+        const mH = str.match(/HUM:(\d+(?:\.\d+)?)/i);
+        const mL = str.match(/(?:LUX|LIGHT):(\d+(?:\.\d+)?)/i);
+        if (mT || mH || mL) {
+          updateEnvironmentUI(
+            mT ? parseFloat(mT[1]) : undefined,
+            mH ? parseFloat(mH[1]) : undefined,
+            mL ? parseFloat(mL[1]) : undefined
+          );
+        }
+      }
+
+      /* Callbacks invocados por MainActivity.java en el APK Android OTG */
+      window.onAndroidUsbData = function (line) {
+        logFrame(`RX OTG: ${line}`);
+        parseArduinoLine(line);
+      };
+
+      window.onAndroidUsbStatus = function (connected, message) {
+        if (connected) {
+          if (hw.simTimer) { clearInterval(hw.simTimer); hw.simTimer = null; }
+          setHardwareStatus("otg", "USB OTG Activo", "online");
+          logFrame(message || "Arduino Mega conectado por USB OTG.");
+          showToast("Arduino Mega conectado por USB OTG");
+          transmitPomodoroToHardware();
+          pushNextAgendaItemToArduino();
+        } else {
+          logFrame(message || "USB OTG desconectado.");
+          if (hw.mode === "otg") startSimHardware();
+        }
+      };
+
+      async function sendRawToHardware(line) {
+        const payload = `${line}\n`;
+        if (window.AndroidUSB && typeof window.AndroidUSB.send === "function") {
+          try {
+            window.AndroidUSB.send(payload);
+            logFrame(`TX OTG: ${line}`);
+          } catch (e) {}
+        }
+        if (hw.mode === "serial" && hw.serialWriter) {
+          try {
+            await hw.serialWriter.write(new TextEncoder().encode(payload));
+            logFrame(`TX UART: ${line}`);
+          } catch (e) {}
+        }
+        if (hw.mode === "wifi" && hw.ws && hw.ws.readyState === WebSocket.OPEN) {
+          try {
+            hw.ws.send(line);
+            logFrame(`TX WS: ${line}`);
+          } catch (e) {}
+        }
+      }
+
+      async function transmitPomodoroToHardware() {
+        if (!pomoCfg.arduinoSync) return;
+        const frame = `POMO:${pomo.mode.toUpperCase()},${pomo.running ? 1 : 0},${pomo.remSec}`;
+        await sendRawToHardware(frame);
+      }
+
+      async function startSerialHardware() {
+        const baudRate = Number(document.getElementById("serialBaudSelect").value) || 115200;
+
+        /* 1. Si estamos dentro del APK Android, usar el puente nativo UsbManager */
+        if (window.AndroidUSB && typeof window.AndroidUSB.connect === "function") {
+          logFrame(`Solicitando permiso USB OTG nativo (${baudRate} bps)...`);
+          window.AndroidUSB.connect(baudRate);
+          return;
+        }
+
+        /* 2. Si estamos en navegador Chrome/Edge, usar Web Serial API */
+        if (!("serial" in navigator)) {
+          showToast("Web Serial no disponible aquí. Usa el APK en tablet o Chrome.");
+          logFrame("ERROR: navigator.serial no disponible.");
+          return;
+        }
+        try {
+          const port = await navigator.serial.requestPort();
+          await port.open({ baudRate });
+
+          stopHardwareStreams();
+          hw.serialPort = port;
+          hw.serialReading = true;
+          setHardwareStatus("serial", "USB Serial Activo", "online");
+          logFrame(`Puerto serie abierto a ${baudRate} bps.`);
+          showToast("Arduino Mega conectado por USB");
+
+          if (port.writable) {
+            hw.serialWriter = port.writable.getWriter();
+            transmitPomodoroToHardware();
+          }
+
+          const decoder = new TextDecoderStream();
+          port.readable.pipeTo(decoder.writable);
+          const reader = decoder.readable.getReader();
+          let buf = "";
+
+          while (hw.serialReading) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) {
+              buf += value;
+              const lines = buf.split(/\r?\n/);
+              buf = lines.pop() || "";
+              lines.forEach((line) => {
+                if (line.trim()) {
+                  logFrame(`RX UART: ${line.trim()}`);
+                  parseArduinoLine(line);
+                }
+              });
+            }
+          }
+          reader.releaseLock();
+        } catch (err) {
+          logFrame(`Serial error/cancelado: ${err.message}`);
+        }
+      }
+
+      async function startWifiHardware() {
+        const proto = document.getElementById("wifiModeSelect").value;
+        const url = document.getElementById("wifiUrlInput").value.trim();
+        const pollMs = Number(document.getElementById("wifiPollSelect").value) || 2000;
+        if (!url) {
+          showToast("Introduce la IP o URL de tu Arduino/ESP-01");
+          return;
+        }
+
+        saveJSON(KEYS.HW_CFG, { proto, url, pollMs });
+        stopHardwareStreams();
+        setHardwareStatus("wifi", "WiFi Local", "online");
+        logFrame(`Conectando WiFi (${proto.toUpperCase()}) -> ${url}`);
+
+        if (proto === "ws") {
+          try {
+            const ws = new WebSocket(url);
+            hw.ws = ws;
+            ws.onopen = () => {
+              logFrame("WebSocket conectado con éxito.");
+              showToast("Conectado por WiFi WebSocket");
+              transmitPomodoroToHardware();
+            };
+            ws.onmessage = (ev) => {
+              logFrame(`RX WS: ${ev.data}`);
+              parseArduinoLine(ev.data);
+            };
+            ws.onerror = () => {
+              setHardwareStatus("wifi", "WiFi Error", "offline");
+              logFrame("Error en WebSocket local.");
+            };
+            ws.onclose = () => {
+              if (hw.mode === "wifi") {
+                setHardwareStatus("wifi", "WiFi Desconectado", "offline");
+                logFrame("Conexión WebSocket cerrada.");
+              }
+            };
+          } catch (err) {
+            setHardwareStatus("wifi", "WiFi Error", "offline");
+            logFrame(`Excepción WS: ${err.message}`);
+          }
+        } else {
+          const poll = async () => {
+            try {
+              const res = await fetch(url, { cache: "no-store" });
+              const txt = await res.text();
+              setHardwareStatus("wifi", "WiFi Activo", "online");
+              logFrame(`RX HTTP: ${txt.slice(0, 75)}`);
+              parseArduinoLine(txt);
+            } catch (err) {
+              setHardwareStatus("wifi", "WiFi Sin Respuesta", "offline");
+              logFrame(`HTTP sin respuesta (${err.message})`);
+            }
+          };
+          await poll();
+          hw.wifiTimer = setInterval(poll, pollMs);
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         8. SCREEN WAKE LOCK & PANTALLA COMPLETA
+         ------------------------------------------------------------------------ */
+      let wakeLockSentinel = null;
+      let wakeLockDesired = false;
+
+      async function requestWakeLock() {
+        if (!("wakeLock" in navigator)) {
+          showToast("Tu navegador no soporta Wake Lock automático.");
+          return;
+        }
+        try {
+          wakeLockSentinel = await navigator.wakeLock.request("screen");
+          wakeLockDesired = true;
+          document.getElementById("wakeLockBtn").classList.add("active-toggle");
+          document.getElementById("wakeLockLabel").textContent = "Pantalla Activa ✓";
+          wakeLockSentinel.addEventListener("release", () => {
+            if (!wakeLockDesired) {
+              document.getElementById("wakeLockBtn").classList.remove("active-toggle");
+              document.getElementById("wakeLockLabel").textContent = "Pantalla Siempre Encendida";
+            }
+          });
+        } catch (e) {
+          showToast("No se pudo activar Pantalla Siempre Encendida.");
+        }
+      }
+
+      async function toggleWakeLock() {
+        if (wakeLockSentinel) {
+          wakeLockDesired = false;
+          try { await wakeLockSentinel.release(); } catch (e) {}
+          wakeLockSentinel = null;
+          document.getElementById("wakeLockBtn").classList.remove("active-toggle");
+          document.getElementById("wakeLockLabel").textContent = "Pantalla Siempre Encendida";
+          showToast("Reposo de pantalla normal activado");
+        } else {
+          await requestWakeLock();
+          if (wakeLockSentinel) showToast("Pantalla siempre encendida activada");
+        }
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          syncPomodoroDeltaTick();
+          if (wakeLockDesired) requestWakeLock();
+        }
+      });
+
+      function toggleFullscreen() {
+        try {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+            requestWakeLock();
+          } else {
+            document.exitFullscreen();
+          }
+        } catch (e) {
+          showToast("Pantalla completa no disponible");
+        }
+      }
+
+      document.addEventListener("fullscreenchange", () => {
+        document.getElementById("fullscreenLabel").textContent =
+          document.fullscreenElement ? "Salir Pantalla" : "Pantalla Completa";
+      });
+
+      /* ------------------------------------------------------------------------
+         9. INICIALIZACIÓN Y EVENTOS
+         ------------------------------------------------------------------------ */
+      function init() {
+        updateAllClocks();
+        setInterval(updateAllClocks, 1000);
+        applyClockTheme(loadJSON(KEYS.CLOCK_THEME, "theme-oled"));
+
+        document.querySelectorAll(".clock-theme-btn").forEach((btn) => {
+          btn.addEventListener("click", () => applyClockTheme(btn.dataset.clockTheme));
+        });
+
+        document.getElementById("cardClockTile").addEventListener("click", () => openFullScreenView("viewClock"));
+        document.getElementById("cardPomoTile").addEventListener("click", () => openFullScreenView("viewPomo"));
+        document.getElementById("cardCalTile").addEventListener("click", () => openFullScreenView("viewCal"));
+        document.getElementById("cardSpotifyTile").addEventListener("click", () => openFullScreenView("viewSpotify"));
+        document.getElementById("expandSpotifyBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          openFullScreenView("viewSpotify");
+        });
+
+        document.getElementById("cardEnvTile").addEventListener("click", () => {
+          document.getElementById("connModal").classList.add("open");
+        });
+        document.getElementById("envConfigQuickBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          document.getElementById("connModal").classList.add("open");
+        });
+
+        document.getElementById("lockWidgetEnv").addEventListener("click", () => {
+          closeAllFullScreenViews();
+          document.getElementById("connModal").classList.add("open");
+        });
+        document.getElementById("lockWidgetCal").addEventListener("click", () => openFullScreenView("viewCal"));
+        document.getElementById("lockWidgetNotion").addEventListener("click", () => openFullScreenView("viewCal"));
+        document.getElementById("lockWidgetPomo").addEventListener("click", () => openFullScreenView("viewPomo"));
+
+        document.querySelectorAll("[data-close-view]").forEach((btn) => {
+          btn.addEventListener("click", closeAllFullScreenViews);
+        });
+
+        /* Pomodoro */
+        document.getElementById("homePomoStartBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (pomo.running) pausePomodoro();
+          else startPomodoro();
+        });
+        document.getElementById("homePomoResetBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          resetPomodoro();
+        });
+
+        document.querySelectorAll(".fs-pomo-mode").forEach((btn) => {
+          btn.addEventListener("click", () => setPomodoroMode(btn.dataset.mode));
+        });
+        document.getElementById("fsPomoStartBtn").addEventListener("click", () => {
+          if (pomo.running) pausePomodoro();
+          else startPomodoro();
+        });
+        document.getElementById("fsPomoResetBtn").addEventListener("click", resetPomodoro);
+        document.getElementById("fsPomoSkipBtn").addEventListener("click", () => {
+          setPomodoroMode(pomo.mode === "focus" ? "short" : "focus");
+        });
+
+        function refreshPomoSettingsUI() {
+          document.getElementById("valFocusMin").textContent = `${pomoCfg.focus} min`;
+          document.getElementById("valShortMin").textContent = `${pomoCfg.short} min`;
+          document.getElementById("valLongMin").textContent = `${pomoCfg.long} min`;
+          document.getElementById("chkAutoStart").checked = Boolean(pomoCfg.autoStart);
+          document.getElementById("chkSpotifyAutoDj").checked = Boolean(pomoCfg.spotifyAutoDj);
+          document.getElementById("chkSoundAlert").checked = Boolean(pomoCfg.soundAlert);
+          document.getElementById("chkArduinoSync").checked = Boolean(pomoCfg.arduinoSync);
+        }
+        refreshPomoSettingsUI();
+
+        document.querySelectorAll("[data-step-target]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const key = btn.dataset.stepTarget;
+            const delta = Number(btn.dataset.stepDelta);
+            const limits = { focus: [5, 90], short: [1, 30], long: [5, 45] };
+            const [minV, maxV] = limits[key];
+            pomoCfg[key] = Math.min(maxV, Math.max(minV, pomoCfg[key] + delta));
+            saveJSON(KEYS.POMO_CFG, pomoCfg);
+            refreshPomoSettingsUI();
+            if (pomo.mode === key) setPomodoroMode(key);
+            else renderPomodoroAll();
+          });
+        });
+
+        document.getElementById("chkAutoStart").addEventListener("change", (e) => {
+          pomoCfg.autoStart = e.target.checked;
+          saveJSON(KEYS.POMO_CFG, pomoCfg);
+        });
+        document.getElementById("chkSpotifyAutoDj").addEventListener("change", (e) => {
+          pomoCfg.spotifyAutoDj = e.target.checked;
+          saveJSON(KEYS.POMO_CFG, pomoCfg);
+        });
+        document.getElementById("chkSoundAlert").addEventListener("change", (e) => {
+          pomoCfg.soundAlert = e.target.checked;
+          saveJSON(KEYS.POMO_CFG, pomoCfg);
+        });
+        document.getElementById("chkArduinoSync").addEventListener("change", (e) => {
+          pomoCfg.arduinoSync = e.target.checked;
+          saveJSON(KEYS.POMO_CFG, pomoCfg);
+        });
+        document.getElementById("fsTestSoundBtn").addEventListener("click", () => playWebAudioChime(true));
+        document.getElementById("resetStatsBtn").addEventListener("click", () => {
+          pomoStats.completed = 0;
+          saveJSON(KEYS.POMO_STATS, pomoStats);
+          renderPomodoroAll();
+          showToast("Contador de sesiones reiniciado");
+        });
+
+        renderPomodoroAll();
+
+        /* Calendario & Notion */
+        document.querySelectorAll("[data-agenda-filter]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            homeAgendaFilter = btn.dataset.agendaFilter;
+            document.querySelectorAll("[data-agenda-filter]").forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            renderCalendarsAndAgenda();
+          });
+        });
+
+        document.getElementById("tabSrcNotionBtn").addEventListener("click", () => {
+          document.getElementById("tabSrcNotionBtn").classList.add("active");
+          document.getElementById("tabSrcIcalBtn").classList.remove("active");
+          document.getElementById("panelSrcNotion").classList.remove("hidden");
+          document.getElementById("panelSrcIcal").classList.add("hidden");
+        });
+
+        document.getElementById("tabSrcIcalBtn").addEventListener("click", () => {
+          document.getElementById("tabSrcIcalBtn").classList.add("active");
+          document.getElementById("tabSrcNotionBtn").classList.remove("active");
+          document.getElementById("panelSrcIcal").classList.remove("hidden");
+          document.getElementById("panelSrcNotion").classList.add("hidden");
+        });
+
+        document.getElementById("notionTokenInput").value = notionCfg.token || "";
+        document.getElementById("notionDbIdInput").value = notionCfg.databaseId || "";
+
+        document.getElementById("saveNotionApiBtn").addEventListener("click", () => {
+          notionCfg.token = document.getElementById("notionTokenInput").value.trim();
+          notionCfg.databaseId = document.getElementById("notionDbIdInput").value.trim();
+          saveJSON(KEYS.NOTION_CFG, notionCfg);
+          syncNotionDatabase();
+        });
+
+        document.getElementById("notionSyncNowBtn").addEventListener("click", syncNotionDatabase);
+
+        document.getElementById("importNotionPasteBtn").addEventListener("click", () => {
+          const raw = document.getElementById("notionPasteBox").value;
+          const lines = raw.split(/\r?\n/).map((l) => l.replace(/^[-*•\[\]xX\s]+/, "").trim()).filter(Boolean);
+          if (lines.length === 0) {
+            showToast("Pega primero una lista de tareas desde Notion");
+            return;
+          }
+          lines.forEach((line, idx) => {
+            notionTasks.unshift({
+              id: `nt-paste-${Date.now()}-${idx}`,
+              date: selectedISO,
+              title: line,
+              tag: "Notion",
+              done: false
+            });
+          });
+          saveJSON(KEYS.NOTION_TASKS, notionTasks);
+          document.getElementById("notionPasteBox").value = "";
+          renderCalendarsAndAgenda();
+          pushNextAgendaItemToArduino();
+          showToast(`Importadas ${lines.length} tareas de Notion`);
+        });
+
+        document.getElementById("quickNotionForm").addEventListener("submit", (e) => {
+          e.preventDefault();
+          const titleVal = document.getElementById("quickNotionTitle").value.trim();
+          const tagVal = document.getElementById("quickNotionTag").value;
+          if (!titleVal) return;
+          notionTasks.unshift({
+            id: `nt-${Date.now()}`,
+            date: selectedISO,
+            title: titleVal,
+            tag: tagVal,
+            done: false
+          });
+          saveJSON(KEYS.NOTION_TASKS, notionTasks);
+          document.getElementById("quickNotionTitle").value = "";
+          renderCalendarsAndAgenda();
+          pushNextAgendaItemToArduino();
+          showToast("Tarea añadida a Notion");
+        });
+
+        const savedIcalUrl = loadJSON(KEYS.ICAL_URL, "");
+        if (savedIcalUrl) document.getElementById("icalUrlInput").value = savedIcalUrl;
+
+        document.getElementById("fsCalPrevBtn").addEventListener("click", () => {
+          calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() - 1, 1);
+          renderCalendarsAndAgenda();
+        });
+        document.getElementById("fsCalNextBtn").addEventListener("click", () => {
+          calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 1);
+          renderCalendarsAndAgenda();
+        });
+        document.getElementById("fsCalTodayBtn").addEventListener("click", () => {
+          calCursor = new Date();
+          selectedISO = toISODateLocal(calCursor);
+          renderCalendarsAndAgenda();
+        });
+
+        document.getElementById("saveIcalUrlBtn").addEventListener("click", () => {
+          syncRemoteICalURL(document.getElementById("icalUrlInput").value);
+        });
+        document.getElementById("icalSyncNowBtn").addEventListener("click", () => {
+          const url = document.getElementById("icalUrlInput").value.trim();
+          if (url) syncRemoteICalURL(url);
+          else showToast("Pega primero una URL iCalendar (.ics)");
+        });
+
+        document.getElementById("icalFileInput").addEventListener("change", (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const parsed = parseICSContent(String(reader.result || ""));
+            const localOnly = calendarEvents.filter((ev) => ev.source === "local");
+            calendarEvents = [...localOnly, ...parsed];
+            saveJSON(KEYS.EVENTS, calendarEvents);
+            saveJSON(KEYS.ICAL_LAST, `Archivo .ics (${parsed.length} eventos)`);
+            renderCalendarsAndAgenda();
+            pushNextAgendaItemToArduino();
+            showToast(`Importados ${parsed.length} eventos desde ${file.name}`);
+          };
+          reader.readAsText(file);
+        });
+
+        document.getElementById("loadDemoIcsBtn").addEventListener("click", () => {
+          const t0 = toISODateLocal(new Date()).replace(/-/g, "");
+          const tomorrow = new Date(Date.now() + 86400000);
+          const t1 = toISODateLocal(tomorrow).replace(/-/g, "");
+          const sampleICS = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "BEGIN:VEVENT",
+            `DTSTART:${t0}T100000`,
+            `DTEND:${t0}T113000`,
+            "SUMMARY:Bloque Robótica — Firmware C puro",
+            "LOCATION:Laboratorio Escritorio",
+            "END:VEVENT",
+            "BEGIN:VEVENT",
+            `DTSTART:${t0}T163000`,
+            `DTEND:${t0}T173000`,
+            "SUMMARY:Pruebas LCD1602 + Sensor LDR",
+            "END:VEVENT",
+            "BEGIN:VEVENT",
+            `DTSTART:${t1}T110000`,
+            "SUMMARY:Subir diagrama README.md a GitHub",
+            "END:VEVENT",
+            "END:VCALENDAR"
+          ].join("\r\n");
+
+          const imported = parseICSContent(sampleICS);
+          const localOnly = calendarEvents.filter((ev) => ev.source === "local");
+          calendarEvents = [...localOnly, ...imported];
+          saveJSON(KEYS.EVENTS, calendarEvents);
+          saveJSON(KEYS.ICAL_LAST, `Ejemplo .ics (${imported.length} eventos)`);
+          renderCalendarsAndAgenda();
+          pushNextAgendaItemToArduino();
+          showToast("Calendario iCal de ejemplo cargado");
+        });
+
+        document.getElementById("quickEventForm").addEventListener("submit", (e) => {
+          e.preventDefault();
+          const timeVal = document.getElementById("quickEventTime").value || "12:00";
+          const titleVal = document.getElementById("quickEventTitle").value.trim();
+          if (!titleVal) return;
+          calendarEvents.push({
+            id: `local-${Date.now()}`,
+            date: selectedISO,
+            time: timeVal,
+            endTime: "",
+            title: titleVal,
+            location: "",
+            source: "local"
+          });
+          saveJSON(KEYS.EVENTS, calendarEvents);
+          document.getElementById("quickEventTitle").value = "";
+          renderCalendarsAndAgenda();
+          pushNextAgendaItemToArduino();
+          showToast("Evento añadido al calendario");
+        });
+
+        renderCalendarsAndAgenda();
+
+        /* Spotify Studio & Mi Cuenta */
+        document.getElementById("spProfileNameInput").value = spProfile.displayName || "";
+        document.getElementById("spProfileTierSelect").value = spProfile.tier || "Premium";
+        document.getElementById("spClientIdInput").value = spProfile.clientId || DEFAULT_SPOTIFY_CLIENT_ID;
+        renderSpotifyRedirectHelp();
+        document.getElementById("spCopyRedirectBtn").addEventListener("click", () => {
+          const box = document.getElementById("spRedirectUriBox");
+          box.select();
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(box.value);
+            else document.execCommand("copy");
+            showToast("Dirección copiada");
+          } catch (e) {
+            showToast("Mantén pulsado el texto para copiarlo");
+          }
+        });
+
+        document.getElementById("toggleSpAccountEditBtn").addEventListener("click", () => {
+          document.getElementById("spAccountConfigBox").classList.toggle("hidden");
+        });
+
+        document.getElementById("saveSpProfileBtn").addEventListener("click", () => {
+          const newName = document.getElementById("spProfileNameInput").value.trim();
+          const newTier = document.getElementById("spProfileTierSelect").value;
+          if (newName) spProfile.displayName = newName;
+          spProfile.tier = newTier;
+          spProfile.autoFocusUrl = document.getElementById("spAutoFocusSelect").value;
+          spProfile.autoBreakUrl = document.getElementById("spAutoBreakSelect").value;
+          saveJSON(KEYS.SPOTIFY_PROFILE, spProfile);
+          renderSpotifyProfile();
+          document.getElementById("spAccountConfigBox").classList.add("hidden");
+          showToast("Perfil y Auto-DJ de Spotify guardados");
+        });
+
+        document.getElementById("spGenreSearchInput").addEventListener("input", renderSpotifyUI);
+
+        document.getElementById("spOauthConnectBtn").addEventListener("click", () => {
+          initiateSpotifyPKCE(document.getElementById("spClientIdInput").value);
+        });
+
+        document.getElementById("spOauthLogoutBtn").addEventListener("click", () => {
+          spProfile.connectedOAuth = false;
+          spProfile.avatarUrl = "";
+          saveJSON(KEYS.SPOTIFY_PROFILE, spProfile);
+          try { localStorage.removeItem(KEYS.SPOTIFY_TOKEN); } catch (e) {}
+          renderSpotifyProfile();
+          showToast("Cuenta OAuth de Spotify desvinculada");
+        });
+
+        setActiveSpotifyEmbed(activeSpotifyUrl);
+        handleSpotifyOAuthCallback();
+
+        document.getElementById("loadCustomSpotifyBtn").addEventListener("click", () => {
+          const rawUrl = document.getElementById("customSpotifyUrlInput").value;
+          const customLabel = document.getElementById("customSpotifyLabelInput").value.trim();
+          const customTag = document.getElementById("customSpotifyTagSelect").value;
+          const embed = parseSpotifyLinkToEmbed(rawUrl);
+          if (!embed) {
+            showToast("Enlace no válido. Pega una URL de playlist, álbum, canción o artista de Spotify.");
+            return;
+          }
+
+          const existingIdx = customPlaylists.findIndex((p) => p.embedUrl === embed);
+          const itemTitle = customLabel || `Mi Playlist #${customPlaylists.length + 1}`;
+          if (existingIdx === -1) {
+            customPlaylists.unshift({
+              id: `custom-${Date.now()}`,
+              name: itemTitle,
+              tag: customTag,
+              subtitle: "Guardado en Mi Cuenta",
+              embedUrl: embed
+            });
+          } else if (customLabel) {
+            customPlaylists[existingIdx].name = customLabel;
+            customPlaylists[existingIdx].tag = customTag;
+          }
+          saveJSON(KEYS.SPOTIFY_CUSTOM, customPlaylists);
+
+          document.getElementById("customSpotifyUrlInput").value = "";
+          document.getElementById("customSpotifyLabelInput").value = "";
+          setActiveSpotifyEmbed(embed, itemTitle);
+          showToast(`Guardado y reproduciendo: ${itemTitle}`);
+        });
+
+        /* Modal Conexión Hardware Arduino Mega 2560 */
+        const savedHw = loadJSON(KEYS.HW_CFG, null);
+        if (savedHw) {
+          document.getElementById("wifiModeSelect").value = savedHw.proto || "ws";
+          document.getElementById("wifiUrlInput").value = savedHw.url || "ws://192.168.1.50:81";
+          document.getElementById("wifiPollSelect").value = String(savedHw.pollMs || 2000);
+        }
+
+        const connModal = document.getElementById("connModal");
+        document.getElementById("openConnModalBtn").addEventListener("click", () => connModal.classList.add("open"));
+        document.getElementById("closeConnModalBtn").addEventListener("click", () => connModal.classList.remove("open"));
+        connModal.addEventListener("click", (e) => {
+          if (e.target === connModal) connModal.classList.remove("open");
+        });
+
+        document.querySelectorAll(".conn-tab-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document.querySelectorAll(".conn-tab-btn").forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tab = btn.dataset.connTab;
+            document.getElementById("paneSerial").classList.toggle("hidden", tab !== "serial");
+            document.getElementById("paneWifi").classList.toggle("hidden", tab !== "wifi");
+            document.getElementById("paneSim").classList.toggle("hidden", tab !== "sim");
+          });
+        });
+
+        document.getElementById("btnStartSim").addEventListener("click", () => {
+          startSimHardware();
+          connModal.classList.remove("open");
+        });
+        document.getElementById("btnConnectWifi").addEventListener("click", startWifiHardware);
+        document.getElementById("btnStopWifi").addEventListener("click", startSimHardware);
+        document.getElementById("btnConnectSerial").addEventListener("click", startSerialHardware);
+        document.getElementById("btnStopSerial").addEventListener("click", startSimHardware);
+
+        /* Modal Backup / Reset */
+        const backupModal = document.getElementById("backupModal");
+        document.getElementById("openBackupModalBtn").addEventListener("click", () => backupModal.classList.add("open"));
+        document.getElementById("closeBackupModalBtn").addEventListener("click", () => backupModal.classList.remove("open"));
+        backupModal.addEventListener("click", (e) => {
+          if (e.target === backupModal) backupModal.classList.remove("open");
+        });
+
+        document.getElementById("exportSettingsBtn").addEventListener("click", () => {
+          const dump = {};
+          Object.values(KEYS).forEach((k) => {
+            dump[k] = loadJSON(k, null);
+          });
+          const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `desk_hub_tablet_backup_${toISODateLocal(new Date())}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast("Copia de seguridad exportada");
+        });
+
+        document.getElementById("resetAllSettingsBtn").addEventListener("click", () => {
+          Object.values(KEYS).forEach((k) => {
+            try { localStorage.removeItem(k); } catch (e) {}
+          });
+          showToast("Ajustes restaurados. Recargando...");
+          setTimeout(() => window.location.reload(), 650);
+        });
+
+        document.getElementById("wakeLockBtn").addEventListener("click", toggleWakeLock);
+        document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreen);
+
+        startSimHardware();
+      }
+
+      window.addEventListener("DOMContentLoaded", init);
+    })();
+  </script>
+</body>
+</html>
